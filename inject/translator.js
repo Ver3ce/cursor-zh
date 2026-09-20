@@ -15,7 +15,7 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var NS = "__cursorZh";
-  var VERSION = "0.1.2"; // 版本变化时，热更新会替换页面内已注入的旧实例
+  var VERSION = "0.1.3"; // 版本变化时，热更新会替换页面内已注入的旧实例
   var MAX_TEXT_LEN = 200;
 
   // 拆出首尾的空白与零宽字符（U+200B-200D / U+2060 / U+FEFF），保证 "Loading fonts...\u2060" 也能命中
@@ -35,6 +35,9 @@
   var exact = new Map();          // 原文 → 译文
   var lower = new Map();          // 小写原文 → 译文（无冲突时）
   var patterns = [];              // [{re, replace}]
+  var suffixes = [];              // [{re, replace}] 可剥离的后缀，如 ". Open activity"
+  var segmentSeps = [", "];       // 分段分隔符：各段独立翻译后用 segmentJoiner 拼接
+  var segmentJoiner = "，";
   var skipSelector = "";          // 逗号拼接的选择器
   var attrNames = [];             // 需翻译的属性
   var textRec = new WeakMap();    // Text → {orig, out}
@@ -66,7 +69,7 @@
 
   // 处理尾部标点：如 "Loading..." / "Settings:" / "Accept…"
   var TAIL_RE = /^(.*?)(\.\.\.|…|:|：)$/;
-  function lookup(key) {
+  function lookupSimple(key) {
     var v = lookupBase(key);
     if (v !== undefined) return v;
     var m = TAIL_RE.exec(key);
@@ -77,11 +80,65 @@
     return undefined;
   }
 
+  // 不翻译也可原样放行的片段：文件名 / 路径 / 标识符（无空格且含 . 或 / 或 -）
+  var PASSTHRU_RE = /^[\w@$][\w.\-\/\\:]*[.\-\/\\][\w.\-\/\\]*$/;
+
+  /**
+   * 组合查找：
+   *   1. 直接命中
+   *   2. 剥离可识别后缀（如 ". Open activity"、" +12 -3"），翻译前缀后再拼回
+   *   3. 按 ", " 分段，各段独立翻译（段可为文件名放行），用 "，" 拼接
+   * 递归深度限制为 3，避免病态输入。
+   */
+  function lookup(key, depth) {
+    depth = depth || 0;
+    var v = lookupSimple(key);
+    if (v !== undefined) return v;
+    if (depth >= 3) return undefined;
+
+    for (var i = 0; i < suffixes.length; i++) {
+      var s = suffixes[i];
+      s.re.lastIndex = 0;
+      var sm = s.re.exec(key);
+      if (sm && sm.index > 0) {
+        var prefix = key.slice(0, sm.index).replace(/\s+$/, "");
+        var inner = lookup(prefix, depth + 1);
+        if (inner !== undefined) return inner + sm[0].replace(s.re, s.replace);
+      }
+    }
+
+    for (var j = 0; j < segmentSeps.length; j++) {
+      var sep = segmentSeps[j];
+      if (key.indexOf(sep) < 0) continue;
+      var parts = key.split(sep);
+      if (parts.length < 2 || parts.length > 8) continue;
+      var out = [];
+      var translatedAny = false;
+      var ok = true;
+      for (var k = 0; k < parts.length; k++) {
+        var p = parts[k].trim();
+        if (!p) { ok = false; break; }
+        var t = lookup(p, depth + 1);
+        if (t !== undefined) { out.push(t); translatedAny = true; }
+        else if (PASSTHRU_RE.test(p) || !/[A-Za-z]/.test(p)) out.push(p);
+        else { ok = false; break; }
+      }
+      if (ok && translatedAny) return out.join(segmentJoiner);
+    }
+    return undefined;
+  }
+
   // ---------------- 未命中记录（供词典维护） ----------------
+  // 常见英文虚词/碎片：出现在采集里几乎只可能来自被拆碎的 AI 回复正文
+  var STOPWORDS = /^(a|an|the|to|of|in|on|at|by|for|and|or|but|so|if|is|are|was|were|be|been|it|its|it's|this|that|these|those|with|from|into|as|than|then|your|you|we|our|us|i|i'll|i'm|my|me|he|she|they|them|their|can|will|do|does|did|not|no|yes|up|down|out|over|under|about|after|before|while|until|between|across|through|via|per|vs|etc|use|used|uses|using|have|has|had|make|made|get|got|let|let's|like|just|also|more|most|less|very|own|same|only|first|last|now|here|there|when|where|how|what|which|who|why|all|any|each|both|some|such|other|another|new|old|one|two|three|work|works|run|runs|set|hit|turn|find|give|pick|move|keep|keeps|full|small|long|hard|best|better|great)$/i;
   function shouldRecord(key) {
     if (key.length < 2 || key.length > 60) return false;
     if (!/[A-Za-z]{2,}/.test(key)) return false;
-    if (/[\u4e00-\u9fff]/.test(key)) return false;            // 已含中文
+    if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(key)) return false; // 含中文或全角标点
+    if (STOPWORDS.test(key)) return false;
+    if (/^[^A-Za-z0-9$@#+"'(\[]/.test(key)) return false;       // 以标点开头的句子碎片
+    if (/^[a-z][a-z'\-]*[,.;:)]$/.test(key)) return false;      // 小写单词带尾标点："logs," "it."
+    if (/^[a-z][a-z'\-]*$/.test(key) && key.length <= 4) return false; // 极短小写单词
     if (/[{}<>;=\\\/|`]/.test(key)) return false;               // 代码/路径特征
     if (/^[\w.@-]+\.[A-Za-z0-9]{1,5}$/.test(key)) return false; // 文件名
     if (/^https?:/i.test(key)) return false;
@@ -306,6 +363,21 @@
         patterns.push({ re: new RegExp(p.match, flags), replace: p.replace });
       } catch (e) { /* 无效正则忽略 */ }
     }
+
+    suffixes = [];
+    var sf = dict.suffixes || [];
+    for (var si = 0; si < sf.length; si++) {
+      var sr = sf[si];
+      if (!sr || typeof sr.match !== "string" || typeof sr.replace !== "string") continue;
+      try {
+        var src = /\$$/.test(sr.match) ? sr.match : sr.match + "$";
+        suffixes.push({ re: new RegExp(src, (sr.flags || "").replace(/g/g, "")), replace: sr.replace });
+      } catch (e) { /* ignore */ }
+    }
+    if (Array.isArray(dict.segmentSeparators)) {
+      segmentSeps = dict.segmentSeparators.filter(function (s) { return typeof s === "string" && s.length; });
+    }
+    if (typeof dict.segmentJoiner === "string") segmentJoiner = dict.segmentJoiner;
 
     var sels = (dict.skipSelectors || []).filter(function (s) { return typeof s === "string" && validSelector(s); });
     skipSelector = sels.join(",");

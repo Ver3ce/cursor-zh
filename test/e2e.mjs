@@ -100,6 +100,8 @@ try {
         editable:g('editor'), pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
         shadow: host && host.shadowRoot ? host.shadowRoot.getElementById('shadowText').textContent : null,
         dyn:g('dynBtn'),
+        comp:g('comp'), suf:g('suf'), pass:g('pass'), nomatch:g('nomatch'), readsuf:g('readsuf'),
+        aiProse:g('aiProse'), humanMsg:g('humanMsg'), aiMd:g('aiMd'), pickerMd:g('pickerMd'),
         misses: Object.keys(window.__cursorZh.collect().texts)
       };
     })()`);
@@ -133,6 +135,16 @@ try {
   expect("采集过滤 + cmd", v.misses.includes("+ git status"), false);
   expect("采集过滤 $var", v.misses.includes("$ProgressPreference"), false);
   expect("采集过滤快捷键", v.misses.includes("Ctrl+Shift+N"), false);
+  expect("组合：分段 + 后缀", v.comp, "3 个文件，探索了 1 次搜索，运行了 2 条命令 +153 -30");
+  expect("组合：后缀 Open activity", v.suf, "等待 shell 最多 1 分 47 秒。打开活动");
+  expect("组合：文件名段放行", v.pass, "e2e.mjs，运行了 3 条命令 +15 -1");
+  expect("组合：不可译段保持原文", v.nomatch, "Write-Host, gh, Select-Object");
+  expect("组合：pattern + 后缀", v.readsuf, "正在读取 AAAI26_MPMA.pdf。打开活动");
+  expect("AI 回复正文不翻译", v.aiProse, "Open the x file and Copy");
+  expect("用户消息不翻译", v.humanMsg, "Send");
+  expect("AI markdown-root 不翻译", v.aiMd, "Copy");
+  expect("模型选择器 markdown 仍翻译", v.pickerMd, "明显更快，但消耗更多用量");
+  expect("AI 正文碎片不进采集", v.misses.includes("Open the"), false);
 
   // 热更新：新增词条、删除词条
   const dict2 = structuredClone(dict);

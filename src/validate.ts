@@ -84,20 +84,30 @@ export function validateDictionaryText(text: string): ValidationResult {
   const dup = findDuplicateKeys(text);
   for (const k of dup) errors.push(`exact 重复键: "${k}"`);
 
-  const patterns = Array.isArray(d.patterns) ? d.patterns : [];
   let patternCount = 0;
-  patterns.forEach((p, i) => {
-    if (!p || typeof p.match !== "string" || typeof p.replace !== "string") {
-      errors.push(`patterns[${i}] 缺少 match/replace 字符串`);
-      return;
+  const checkRules = (list: unknown, label: string): number => {
+    let n = 0;
+    if (list === undefined) return 0;
+    if (!Array.isArray(list)) {
+      errors.push(`${label} 必须是数组`);
+      return 0;
     }
-    try {
-      new RegExp(p.match, typeof p.flags === "string" ? p.flags.replace(/g/g, "") : "");
-      patternCount++;
-    } catch (e) {
-      errors.push(`patterns[${i}] 正则无效 ${JSON.stringify(p.match)}: ${(e as Error).message}`);
-    }
-  });
+    (list as Array<{ match?: unknown; replace?: unknown; flags?: unknown }>).forEach((p, i) => {
+      if (!p || typeof p.match !== "string" || typeof p.replace !== "string") {
+        errors.push(`${label}[${i}] 缺少 match/replace 字符串`);
+        return;
+      }
+      try {
+        new RegExp(p.match, typeof p.flags === "string" ? p.flags.replace(/g/g, "") : "");
+        n++;
+      } catch (e) {
+        errors.push(`${label}[${i}] 正则无效 ${JSON.stringify(p.match)}: ${(e as Error).message}`);
+      }
+    });
+    return n;
+  };
+  patternCount = checkRules(d.patterns, "patterns");
+  checkRules((d as Record<string, unknown>).suffixes, "suffixes");
 
   if (d.skipSelectors !== undefined && !Array.isArray(d.skipSelectors)) errors.push("skipSelectors 必须是数组");
   if (d.attributes !== undefined && !Array.isArray(d.attributes)) errors.push("attributes 必须是数组");

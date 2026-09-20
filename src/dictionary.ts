@@ -19,6 +19,12 @@ export interface Dictionary {
   skipSelectors: string[];
   /** 需翻译的属性名 */
   attributes: string[];
+  /** 可剥离的后缀（翻译前缀后拼回），如 ". Open activity" */
+  suffixes: PatternRule[];
+  /** 分段分隔符（各段独立翻译后拼接） */
+  segmentSeparators: string[];
+  /** 分段拼接符 */
+  segmentJoiner: string;
 }
 
 const DEFAULT_SKIP = [
@@ -46,23 +52,30 @@ export function parseDictionary(text: string): Dictionary {
       if (typeof v === "string" && k.trim()) exact[k] = v;
     }
   }
-  const patterns: PatternRule[] = [];
-  if (Array.isArray(raw.patterns)) {
-    for (const p of raw.patterns) {
+  const readRules = (list: unknown, label: string): PatternRule[] => {
+    const out: PatternRule[] = [];
+    if (!Array.isArray(list)) return out;
+    for (const p of list as Array<Partial<PatternRule>>) {
       if (!p || typeof p.match !== "string" || typeof p.replace !== "string") continue;
       try {
         new RegExp(p.match, p.flags ?? "");
-        patterns.push({ match: p.match, replace: p.replace, flags: p.flags });
+        out.push({ match: p.match, replace: p.replace, flags: p.flags });
       } catch (e) {
-        console.warn(`[词典] 忽略无效正则 ${JSON.stringify(p.match)}: ${(e as Error).message}`);
+        console.warn(`[词典] 忽略 ${label} 中的无效正则 ${JSON.stringify(p.match)}: ${(e as Error).message}`);
       }
     }
-  }
+    return out;
+  };
   return {
     exact,
-    patterns,
+    patterns: readRules(raw.patterns, "patterns"),
+    suffixes: readRules(raw.suffixes, "suffixes"),
     skipSelectors: Array.isArray(raw.skipSelectors) ? raw.skipSelectors.filter((s) => typeof s === "string") : DEFAULT_SKIP,
     attributes: Array.isArray(raw.attributes) ? raw.attributes.filter((s) => typeof s === "string") : DEFAULT_ATTRS,
+    segmentSeparators: Array.isArray(raw.segmentSeparators)
+      ? raw.segmentSeparators.filter((s) => typeof s === "string" && s.length > 0)
+      : [", "],
+    segmentJoiner: typeof raw.segmentJoiner === "string" ? raw.segmentJoiner : "，",
   };
 }
 
