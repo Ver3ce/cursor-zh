@@ -1,0 +1,19 @@
+# 构建产物
+node_modules/
+dist/
+build/out/
+build/portable/
+
+# 运行时生成
+logs/
+config.json
+dict/untranslated.json
+*.bak
+
+# 本机快捷方式
+*.lnk
+
+# 编辑器
+.vscode/
+.idea/
+Thumbs.db

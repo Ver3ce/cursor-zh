@@ -1,0 +1,12 @@
+{
+  "main": "dist/cursor-zh.cjs",
+  "output": "build/out/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false,
+  "assets": {
+    "translator.js": "inject/translator.js",
+    "zh-CN.json": "dict/zh-CN.json",
+    "config.default.json": "config.default.json"
+  }
+}

@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 exe 并发布 Release
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 校验 tag 与 package.json 版本一致
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $pkg = (Get-Content package.json | ConvertFrom-Json).version
+          if ($tag -ne $pkg) { throw "tag $tag 与 package.json 版本 $pkg 不一致" }
+
+      - name: 编译 + 词典校验
+        run: |
+          npm run build
+          npm run validate-dict
+
+      - name: 构建单文件 exe
+        run: node build/build-exe.mjs
+
+      - name: 端到端测试（含 exe）
+        run: node test/e2e.mjs --exe build/out/cursor-zh.exe
+
+      - name: 打包便携版 zip
+        shell: pwsh
+        run: |
+          $stage = "build/portable/cursor-zh"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item build/out/cursor-zh.exe $stage/
+          Copy-Item config.default.json $stage/
+          New-Item -ItemType Directory -Force "$stage/dict" | Out-Null
+          Copy-Item dict/zh-CN.json "$stage/dict/"
+          Copy-Item README.md, LICENSE $stage/
+          Copy-Item docs/使用指南.md $stage/
+          Compress-Archive -Path "$stage/*" -DestinationPath "build/portable/cursor-zh-${{ github.ref_name }}-win-x64.zip" -Force
+          Get-FileHash build/out/cursor-zh.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  cursor-zh.exe" } | Out-File -Encoding ascii build/portable/SHA256SUMS.txt
+          Get-FileHash "build/portable/cursor-zh-${{ github.ref_name }}-win-x64.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  cursor-zh-${{ github.ref_name }}-win-x64.zip" } | Out-File -Encoding ascii -Append build/portable/SHA256SUMS.txt
+          Get-Content build/portable/SHA256SUMS.txt
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: cursor-zh ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## 下载
+            - `cursor-zh.exe`：单文件，放到任意文件夹双击即可（首次运行进入向导）。
+            - `cursor-zh-*-win-x64.zip`：便携包，含 exe、默认词典与说明。
+
+            Windows SmartScreen 可能提示"未知发布者"（exe 未签名），点"更多信息 → 仍要运行"。可用 `SHA256SUMS.txt` 校验文件完整性。
+
+            ## 说明
+            本工具不修改 Cursor 任何安装文件，只在运行时通过调试端口向 Cursor 窗口注入本地词典翻译。风险与限制见 README。
+          files: |
+            build/out/cursor-zh.exe
+            build/portable/cursor-zh-${{ github.ref_name }}-win-x64.zip
+            build/portable/SHA256SUMS.txt

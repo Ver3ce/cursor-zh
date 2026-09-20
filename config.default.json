@@ -1,0 +1,9 @@
+{
+  "_comment": "cursor-zh 配置。cursorPath 留空则自动探测；port 为 CDP 调试端口，仅监听 127.0.0.1；dictUrl 仅在手动执行 update-dict 时使用。",
+  "cursorPath": "",
+  "port": 9333,
+  "dictionary": "dict/zh-CN.json",
+  "watchDictionary": true,
+  "extraCursorArgs": [],
+  "dictUrl": "https://raw.githubusercontent.com/Ver3ce/cursor-zh/main/dict/zh-CN.json"
+}

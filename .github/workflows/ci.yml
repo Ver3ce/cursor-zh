@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 构建 + 词典校验 + 端到端
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 类型检查与编译
+        run: npm run build
+
+      - name: 注入脚本语法检查
+        run: node --check inject/translator.js
+
+      - name: 词典校验
+        run: npm run validate-dict
+
+      - name: 构建单文件 exe
+        run: node build/build-exe.mjs
+
+      - name: 端到端测试（headless Edge + exe）
+        run: node test/e2e.mjs --exe build/out/cursor-zh.exe
+
+      - name: exe 冒烟
+        shell: pwsh
+        run: |
+          $v = & build/out/cursor-zh.exe version
+          if ($v -ne (Get-Content package.json | ConvertFrom-Json).version) { throw "exe 版本号与 package.json 不一致: $v" }
+          & build/out/cursor-zh.exe detect
