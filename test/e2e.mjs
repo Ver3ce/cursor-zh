@@ -71,7 +71,21 @@ try {
   const dict = loadDictionary("dict/zh-CN.json");
   const translator = loadTranslatorSource();
   await injector.start(buildInjectSource(translator, dict));
-  await new Promise((r) => setTimeout(r, 1500));
+
+  // CI runner 上 Edge 首次启动较慢：轮询直到 fixture 页面加载完成且已注入
+  const deadline = Date.now() + 30_000;
+  let lastSeen = [];
+  for (;;) {
+    const res = await injector.evaluateAll(
+      "(function(){return {ready: !!window.__cursorZh, state: document.readyState, dyn: !!document.getElementById('dynBtn')};})()",
+    );
+    lastSeen = res.map((r) => `${r.type} ${r.url} ${JSON.stringify(r.value)}`);
+    const hit = res.find((r) => /fixture\.html/.test(r.url) && r.value?.ready && r.value.state === "complete" && r.value.dyn);
+    if (hit) break;
+    if (Date.now() > deadline) throw new Error(`fixture 页面在 30s 内未就绪。当前 targets:\n  ${lastSeen.join("\n  ") || "(无)"}`);
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  await new Promise((r) => setTimeout(r, 500)); // 等 mode 文本被脚本改写（fixture 内 +200ms）
 
   const read = async () => {
     const res = await injector.evaluateAll(`(function(){
