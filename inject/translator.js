@@ -15,7 +15,7 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var NS = "__cursorZh";
-  var VERSION = "0.1.5"; // 版本变化时，热更新会替换页面内已注入的旧实例
+  var VERSION = "0.1.6"; // 版本变化时，热更新会替换页面内已注入的旧实例
   var MAX_TEXT_LEN = 200;
 
   // 拆出首尾的空白与零宽字符（U+200B-200D / U+2060 / U+FEFF），保证 "Loading fonts...\u2060" 也能命中
@@ -152,8 +152,17 @@
     if (/^(?:Remove |Add )?[A-Z][a-z]+-[A-Z][A-Za-z]+$/.test(key)) return false;
     if (/^\+ /.test(key)) return false;
     if (/^(?:npm|npx|pnpm|yarn|git|docker|node|python|pip|cargo|go|dotnet|curl|wget|ssh|netsh|choco|winget)\b/.test(key)) return false;
+    // 代码 token（来自对话里的 diff / 代码视图被逐 token 渲染）：
+    if (CODE_KEYWORDS.test(key)) return false;                                    // return / function / const …
+    if (/^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\.?$/.test(key)) return false;         // camelCase 标识符：nodeType / phStyle.
+    if (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(key)) return false;                 // 常量：PH_ATTR / BURST_LIMIT
+    if (/^[a-z]+(?:_[a-z0-9]+)+$/.test(key)) return false;                         // snake_case
+    if (/^["'].*["']$/.test(key)) return false;                                    // 字面量："placeholder"
+    if (/^[(\[]?[\w$]+\.[\w$]*[(\[]?$|^[\w$]+\.$|^\([\w$.]+$/.test(key)) return false; // 成员访问碎片：(root. / textRec. / NodeFilter.
+    if (/^[\w$]+\([\w$., ]*$/.test(key)) return false;                             // 调用碎片：translatePlaceholdersWithin(n
     return true;
   }
+  var CODE_KEYWORDS = /^(?:return|function|const|let|var|if|else|for|while|do|switch|case|break|continue|default|try|catch|finally|throw|new|delete|typeof|instanceof|void|in|of|class|extends|super|this|null|undefined|true|false|import|export|from|async|await|yield|static|get|set|document|window|self|def|elif|pass|lambda|None|True|False|struct|enum|impl|fn|pub|mut|nil|func|package|interface|namespace|using|public|private|protected|override|virtual|string|int|bool|float|double|char|byte)$/;
   function recordMiss(map, key) {
     if (!shouldRecord(key)) return;
     map.set(key, (map.get(key) || 0) + 1);
