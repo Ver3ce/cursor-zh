@@ -49,7 +49,8 @@
 - TypeScript 源码在 `src/`，注入到 Cursor 页面的脚本是 `inject/translator.js`（纯 JS，需保持幂等，且只能写 `nodeValue` 与普通属性——不要引入 `innerHTML`、`eval`、`new Function`，否则会撞上 Cursor 的 Trusted Types CSP）。
 - 修改 `translator.js` 后请提升其内部 `VERSION`，这样热更新会替换页面里的旧实例。
 - 跑 `npm run check` 与 `npm run test:e2e`。
-- 涉及探测/启动逻辑的改动请在真机验证：完全退出 Cursor 后用 `node dist/index.js start` 跑一遍。
+- 涉及探测/启动逻辑的改动请在真机验证：用 `node dist/index.js start` 跑一遍（Cursor 在运行时会询问是否重启）。
+- `cursor-zh.cmd` 必须保持纯 ASCII、CRLF 换行。cmd.exe 按字节偏移重读批处理文件，文件里一旦有 UTF-8 多字节字符，`chcp 65001` 之后解析位置就会错乱（在 GBK 控制台下会跳到错误分支、找不到标签、窗口直接关闭）。中文提示交给 Node 输出。测试时用 `cmd /c "chcp 936 >nul & cursor-zh.cmd"` 模拟中文系统的默认控制台，不要只在已是 UTF-8 的终端里验证。
 
 ## 设计边界（不接受的改动）
 
