@@ -4,6 +4,15 @@
 [![Release](https://img.shields.io/github/v/release/Ver3ce/cursor-zh)](https://github.com/Ver3ce/cursor-zh/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+![汉化前后对比](docs/media/before-after.png)
+
+<details>
+<summary>动图：汉化前 / 汉化后切换</summary>
+
+![汉化前后切换动图](docs/media/toggle.gif)
+
+</details>
+
 把 Cursor 自研的界面——Agent/Chat 面板、Agent 窗口、Cursor Settings、内置浏览器、更改面板等——在运行时替换为中文。
 这些区域是 VS Code 官方中文语言包覆盖不到的；本工具与官方语言包配合，实现整个 Cursor 界面的中文化。
 

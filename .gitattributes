@@ -5,3 +5,7 @@
 *.exe binary
 *.blob binary
 *.lnk binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.mp4 binary
