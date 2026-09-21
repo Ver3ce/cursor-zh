@@ -15,7 +15,7 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var NS = "__cursorZh";
-  var VERSION = "0.1.4"; // 版本变化时，热更新会替换页面内已注入的旧实例
+  var VERSION = "0.1.5"; // 版本变化时，热更新会替换页面内已注入的旧实例
   var MAX_TEXT_LEN = 200;
 
   // 拆出首尾的空白与零宽字符（U+200B-200D / U+2060 / U+FEFF），保证 "Loading fonts...\u2060" 也能命中
@@ -48,7 +48,7 @@
   var observedRoots = new WeakSet();
   var ready = false;
   var disposed = false;
-  var stats = { translated: 0, scans: 0 };
+  var stats = { translated: 0, scans: 0, trips: 0 };
 
   // ---------------- 词典查询 ----------------
   function lookupBase(key) {
@@ -194,6 +194,7 @@
       recordMiss(missTexts, key);
       if (rec && raw !== orig) {    // 词典已删除该条，还原原文
         textRec.delete(node);
+        noteWrite();
         node.nodeValue = orig;
       }
       return;
@@ -201,12 +202,14 @@
     var val = parts.lead + out + parts.trail;
     if (val === raw) { textRec.set(node, { orig: orig, out: val }); return; }
     textRec.set(node, { orig: orig, out: val });
+    noteWrite();
     node.nodeValue = val;
     stats.translated++;
   }
 
   // ---------------- 属性 ----------------
   function translateAttr(el, attr, force) {
+    if (attr === PH_ATTR) { translatePlaceholderCss(el); return; }  // 永不改写，走 CSS
     if (!el.hasAttribute(attr)) return;
     var raw = el.getAttribute(attr);
     if (!raw) return;
@@ -228,6 +231,7 @@
       recordMiss(missAttrs, key);
       if (rec && raw !== orig) {
         delete recs[attr];
+        noteWrite();
         el.setAttribute(attr, orig);
       }
       return;
@@ -236,6 +240,7 @@
     if (!recs) { recs = {}; attrRec.set(el, recs); }
     recs[attr] = { orig: orig, out: val };
     if (val !== raw) {
+      noteWrite();
       el.setAttribute(attr, val);
       stats.translated++;
     }
@@ -244,23 +249,79 @@
     for (var i = 0; i < attrNames.length; i++) translateAttr(el, attrNames[i], force);
   }
 
-  // 占位提示属性：即使位于被跳过的可编辑区域（如 ProseMirror/tiptap 输入框，占位符挂在内部 <p data-placeholder>），
-  // 也应翻译——它们是 UI 文案而不是用户输入。代码/预格式区域仍然跳过。
-  var PLACEHOLDER_ATTRS = ["placeholder", "data-placeholder", "aria-placeholder"];
-  var PLACEHOLDER_SEL = "[placeholder],[data-placeholder],[aria-placeholder]";
-  function isEditableSkip(el) {
-    return el && el.nodeType === 1 && el.hasAttribute("contenteditable") && !el.closest("pre,code,.monaco-editor,.xterm");
+  // ---------------- 富文本输入框的占位符（CSS 方案） ----------------
+  // ProseMirror/tiptap 的占位符挂在编辑器内部 <p data-placeholder="…">，由 CSS `::before{content:attr(data-placeholder)}` 显示。
+  // 绝不能对它 setAttribute：ProseMirror 自己也在观察编辑器内的属性变化并会改回去，两个 MutationObserver
+  // 会在微任务里互相触发形成死循环，整个渲染进程假死（0.1.4 曾因此导致 Cursor 卡在"正在加载对话"）。
+  // 改为注入一条 CSS 规则覆盖 ::before 的 content，不碰 DOM。
+  var PH_ATTR = "data-placeholder";
+  var phStyle = null;          // <style> 元素
+  var phRules = new Set();     // 已注入的"属性值"，避免重复
+  function phSheet() {
+    if (phStyle && phStyle.isConnected) return phStyle.sheet;
+    try {
+      phStyle = document.createElement("style");
+      phStyle.setAttribute("data-cursor-zh", "placeholder");
+      (document.head || document.documentElement).appendChild(phStyle);
+      return phStyle.sheet;
+    } catch (e) { return null; }
   }
-  function translatePlaceholderAttrs(el, force) {
-    for (var i = 0; i < PLACEHOLDER_ATTRS.length; i++) {
-      if (attrNames.indexOf(PLACEHOLDER_ATTRS[i]) !== -1) translateAttr(el, PLACEHOLDER_ATTRS[i], force);
-    }
+  function phClear() {
+    phRules.clear();
+    if (phStyle && phStyle.parentNode) phStyle.parentNode.removeChild(phStyle);
+    phStyle = null;
   }
-  function translatePlaceholdersWithin(root, force) {
-    if (!isEditableSkip(root)) return;
-    translatePlaceholderAttrs(root, force);
-    var list = root.querySelectorAll(PLACEHOLDER_SEL);
-    for (var i = 0; i < list.length; i++) translatePlaceholderAttrs(list[i], force);
+  function cssString(s) { return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\a ") + '"'; }
+  function unquote(s) { return typeof s === "string" ? s.replace(/^["'](.*)["']$/, "$1") : s; }
+  /** 某元素的 data-placeholder 若被 ::before/::after 用 attr() 显示，则为其值注入译文规则 */
+  function translatePlaceholderCss(el) {
+    if (!el || el.nodeType !== 1 || !el.hasAttribute(PH_ATTR)) return;
+    var raw = el.getAttribute(PH_ATTR);
+    if (!raw || phRules.has(raw)) return;
+    var key = splitEdges(raw).core;
+    if (!key || key.length > MAX_TEXT_LEN || !/[A-Za-z]/.test(key)) return;
+    var out = lookup(key);
+    if (out === undefined) { recordMiss(missAttrs, key); return; }
+    var pseudo = null;
+    try {
+      if (unquote(getComputedStyle(el, "::before").content) === raw) pseudo = "::before";
+      else if (unquote(getComputedStyle(el, "::after").content) === raw) pseudo = "::after";
+    } catch (e) { /* ignore */ }
+    if (!pseudo) return;  // 不是用 attr() 显示的，不知道显示机制，不动
+    var sheet = phSheet();
+    if (!sheet) return;
+    try {
+      sheet.insertRule("[" + PH_ATTR + "=" + cssString(raw) + "]" + pseudo + "{content:" + cssString(out) + " !important}", sheet.cssRules.length);
+      phRules.add(raw);
+      stats.translated++;
+    } catch (e) { /* ignore */ }
+  }
+  function translatePlaceholdersWithin(root) {
+    if (!root || root.nodeType !== 1) return;
+    translatePlaceholderCss(root);
+    var list = root.querySelectorAll("[" + PH_ATTR + "]");
+    for (var i = 0; i < list.length; i++) translatePlaceholderCss(list[i]);
+  }
+
+  // ---------------- 写入风暴保护 ----------------
+  // 若与页面框架（React/ProseMirror）互相触发，MutationObserver 回调会在同一轮微任务里无限往复，
+  // 不会让出主线程。这里统计"未让出主线程期间"的 DOM 写入次数，超限即断开所有观察者，稍后再恢复。
+  var BURST_LIMIT = 20000;
+  var burst = 0, burstTimer = null, tripped = false;
+  function noteWrite() {
+    burst++;
+    if (burstTimer === null) burstTimer = setTimeout(function () { burst = 0; burstTimer = null; }, 0);
+    if (burst > BURST_LIMIT && !tripped) trip();
+  }
+  function trip() {
+    tripped = true;
+    stats.trips++;
+    disconnectObservers();
+    try { console.warn("[cursor-zh] 检测到 DOM 写入风暴（" + burst + " 次未让出主线程），已暂停翻译 3 秒以保护页面"); } catch (e) { /* ignore */ }
+    setTimeout(function () {
+      tripped = false; burst = 0; burstTimer = null;
+      if (!disposed && ready) reobserveAll();
+    }, 3000);
   }
 
   // ---------------- 扫描 ----------------
@@ -269,7 +330,7 @@
     var t = root.nodeType;
     if (t === 3) { translateText(root, force); return; }
     if (t === 1) {
-      if (matchesSkip(root)) { translatePlaceholdersWithin(root, force); return; }
+      if (matchesSkip(root)) { translatePlaceholdersWithin(root); return; }
       translateAttrs(root, force);
       if (root.shadowRoot) { observeRoot(root.shadowRoot); scan(root.shadowRoot, force); }
     } else if (t !== 9 && t !== 11) {
@@ -279,7 +340,7 @@
       acceptNode: function (n) {
         if (n.nodeType === 1) {
           if (!matchesSkip(n)) return NodeFilter.FILTER_ACCEPT;
-          translatePlaceholdersWithin(n, force);
+          translatePlaceholdersWithin(n);  // 只读 + 注入 CSS，不写 DOM
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -310,21 +371,15 @@
           var node = m.addedNodes[j];
           var el = node.nodeType === 1 ? node : node.parentElement;
           if (insideSkip(el)) {
-            // 可编辑区内新建的占位节点（tiptap 清空后重建 <p data-placeholder>）
-            if (node.nodeType === 1 && isEditableSkip(node.closest("[contenteditable]"))) {
-              translatePlaceholderAttrs(node, false);
-              var ph = node.querySelectorAll(PLACEHOLDER_SEL);
-              for (var k = 0; k < ph.length; k++) translatePlaceholderAttrs(ph[k], false);
-            }
+            // 可编辑区内新建的占位节点（tiptap 清空后重建 <p data-placeholder>）：只注入 CSS
+            if (node.nodeType === 1) translatePlaceholdersWithin(node);
             continue;
           }
           scan(node, false);
         }
       } else if (m.type === "attributes") {
-        if (!insideSkip(m.target)) translateAttr(m.target, m.attributeName, false);
-        else if (PLACEHOLDER_ATTRS.indexOf(m.attributeName) !== -1 && isEditableSkip(m.target.closest("[contenteditable]"))) {
-          translateAttr(m.target, m.attributeName, false);
-        }
+        if (m.attributeName === PH_ATTR) translatePlaceholderCss(m.target);
+        else if (!insideSkip(m.target)) translateAttr(m.target, m.attributeName, false);
       }
     }
   }
@@ -337,11 +392,14 @@
     mo.observe(root, opts);
     observers.push(mo);
   }
-  function reobserveAll() {
-    // 属性列表变化时需要重建 observer
+  function disconnectObservers() {
     for (var i = 0; i < observers.length; i++) observers[i].disconnect();
     observers = [];
     observedRoots = new WeakSet();
+  }
+  function reobserveAll() {
+    // 属性列表变化 / 风暴保护恢复时重建 observer
+    disconnectObservers();
     observeRoot(document);
   }
 
@@ -421,6 +479,7 @@
     attrNames = newAttrs;
 
     ready = true;
+    phClear();  // 词典变化后占位符译文可能不同，重新生成 CSS 规则
     hookAttachShadow();
     if (attrsChanged || observers.length === 0) reobserveAll();
     rescan();
@@ -443,8 +502,8 @@
 
   function dispose() {
     disposed = true;
-    for (var i = 0; i < observers.length; i++) observers[i].disconnect();
-    observers = [];
+    disconnectObservers();
+    phClear();
     unhookAttachShadow();
     if (window[NS] === api) { try { delete window[NS]; } catch (e) { window[NS] = undefined; } }
   }
@@ -456,7 +515,7 @@
     collect: collect,
     clearMisses: clearMisses,
     dispose: dispose,
-    stats: function () { return { translated: stats.translated, scans: stats.scans, exact: exact.size, patterns: patterns.length }; },
+    stats: function () { return { translated: stats.translated, scans: stats.scans, trips: stats.trips, exact: exact.size, patterns: patterns.length }; },
   };
   try {
     Object.defineProperty(window, NS, { value: api, configurable: true, writable: true, enumerable: false });

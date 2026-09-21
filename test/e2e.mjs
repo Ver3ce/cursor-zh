@@ -97,7 +97,11 @@ try {
         mode:g('mode'), thought:g('thought'), files:g('files'), loading:g('loading'), unknown:g('unknown'),
         zw:g('zw'), worked:g('worked'), sum:g('sum'), rm:g('rm'), ran:g('ran'), ed:g('ed'),
         placeholder:document.getElementById('inp').placeholder, inputValue:document.getElementById('inp').value,
-        editable:g('editor'), pmph:document.getElementById('pmph').getAttribute('data-placeholder'), pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
+        editable:g('editor'),
+        pmAttr:document.getElementById('pmph').getAttribute('data-placeholder'),
+        pmShown:getComputedStyle(document.getElementById('pmph'),'::before').content,
+        pmResets:window.__pmResets||0,
+        pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
         shadow: host && host.shadowRoot ? host.shadowRoot.getElementById('shadowText').textContent : null,
         dyn:g('dynBtn'),
         comp:g('comp'), suf:g('suf'), pass:g('pass'), nomatch:g('nomatch'), readsuf:g('readsuf'),
@@ -126,7 +130,9 @@ try {
   expect("placeholder 翻译", v.placeholder, "计划、搜索、构建任何内容");
   expect("input value 不动", v.inputValue, "Accept");
   expect("contenteditable 跳过", v.editable, "Accept all");
-  expect("可编辑区内 data-placeholder 仍翻译", v.pmph, "发送追问");
+  expect("ProseMirror 占位符：属性不被改写", v.pmAttr, "Send follow-up");
+  expect("ProseMirror 占位符：::before 显示译文", v.pmShown, '"发送追问"');
+  expect("ProseMirror 占位符：未触发编辑器回写", v.pmResets, 0);
   expect("pre 跳过", v.pre, "Reject all");
   expect("monaco 跳过", v.monaco, "Keep all");
   expect("shadow DOM", v.shadow, "审查更改");
@@ -159,6 +165,22 @@ try {
   await injector.updateSource(buildInjectSource(translator, dict));
   await new Promise((r) => setTimeout(r, 300));
   expect("重复注入后恢复", (await read()).b1, "发送");
+
+  // 写入风暴保护：模拟一个会把 title 改回英文的框架观察者，与翻译器互相触发。
+  // 没有保护时页面会在微任务里死循环（evaluate 永不返回）；有保护时应在几毫秒内断开并保持页面可响应。
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
+  await withTimeout(injector.evaluateAll(`(function(){
+    var b=document.createElement('button');b.id='fight';b.title='Send message';document.body.appendChild(b);
+    new MutationObserver(function(){ if(b.title!=='Send message'){ window.__fightResets=(window.__fightResets||0)+1; b.title='Send message'; } })
+      .observe(b,{attributes:true});
+    return 'armed';
+  })()`), 15000);
+  await new Promise((r) => setTimeout(r, 400));
+  const storm = await withTimeout(injector.evaluateAll(`(function(){return {trips:window.__cursorZh.stats().trips, resets:window.__fightResets||0};})()`), 15000);
+  const s = storm?.find((r) => /fixture\.html/.test(r.url))?.value;
+  expect("写入风暴：页面仍可响应", !!s, true);
+  expect("写入风暴：保护已触发", (s?.trips ?? 0) >= 1, true);
+  expect("写入风暴：往复次数被截断", (s?.resets ?? Infinity) <= 21000, true);
   client.close();
 
   // 可选：用打包好的 exe 跑 collect，验证 SEA 资产与外部词典加载

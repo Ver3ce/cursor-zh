@@ -48,6 +48,7 @@
 
 - TypeScript 源码在 `src/`，注入到 Cursor 页面的脚本是 `inject/translator.js`（纯 JS，需保持幂等，且只能写 `nodeValue` 与普通属性——不要引入 `innerHTML`、`eval`、`new Function`，否则会撞上 Cursor 的 Trusted Types CSP）。
 - 修改 `translator.js` 后请提升其内部 `VERSION`，这样热更新会替换页面里的旧实例。
+- 绝不在 `contenteditable`（ProseMirror/tiptap 输入框）内部写 DOM——包括属性。编辑器自己也在观察这些节点并会改回去，两个 MutationObserver 会在微任务里互相触发，渲染进程假死（0.1.4 的事故）。输入框占位符走 CSS 规则覆盖 `::before{content}`，见 `translatePlaceholderCss`。任何新的"写 DOM"路径都必须经过 `noteWrite()`，让写入风暴保护能生效。
 - 跑 `npm run check` 与 `npm run test:e2e`。
 - 涉及探测/启动逻辑的改动请在真机验证：用 `node dist/index.js start` 跑一遍（Cursor 在运行时会询问是否重启）。
 - `cursor-zh.cmd` 必须保持纯 ASCII、CRLF 换行。cmd.exe 按字节偏移重读批处理文件，文件里一旦有 UTF-8 多字节字符，`chcp 65001` 之后解析位置就会错乱（在 GBK 控制台下会跳到错误分支、找不到标签、窗口直接关闭）。中文提示交给 Node 输出。测试时用 `cmd /c "chcp 936 >nul & cursor-zh.cmd"` 模拟中文系统的默认控制台，不要只在已是 UTF-8 的终端里验证。

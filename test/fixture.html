@@ -1,5 +1,9 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>cursor-zh fixture</title></head>
+<html><head><meta charset="utf-8"><title>cursor-zh fixture</title>
+<style>
+  /* 与 tiptap Placeholder 扩展一致：占位符通过 ::before 读 data-placeholder 显示 */
+  .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #999; float: left; height: 0; pointer-events: none; }
+</style></head>
 <body>
   <div id="toolbar">
     <button id="b1" title="Send message">Send</button>
@@ -31,7 +35,20 @@
   <div class="ui-markdown markdown-root vscode-model-picker__trigger-markdown"><span id="pickerMd">Significantly faster but consumes more usage</span></div>
   <input id="inp" placeholder="Plan, search, build anything" value="Accept">
   <div id="editor" contenteditable="true">Accept all</div>
-  <div id="pm" class="tiptap ProseMirror" contenteditable="true"><p id="pmph" data-placeholder="Send follow-up"><br></p></div>
+  <div id="pm" class="tiptap ProseMirror" contenteditable="true"><p id="pmph" class="is-editor-empty" data-placeholder="Send follow-up"><br></p></div>
+  <script>
+    // 模拟 ProseMirror：编辑器内任何属性被外部改写，都会被它按自己的状态改回去。
+    // 若翻译器直接 setAttribute，会形成两个 MutationObserver 互相触发的微任务死循环（页面假死）。
+    new MutationObserver(function (list) {
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        if (m.type === "attributes" && m.attributeName === "data-placeholder" && m.target.getAttribute("data-placeholder") !== "Send follow-up") {
+          window.__pmResets = (window.__pmResets || 0) + 1;
+          m.target.setAttribute("data-placeholder", "Send follow-up");
+        }
+      }
+    }).observe(document.getElementById("pm"), { attributes: true, subtree: true });
+  </script>
   <pre id="pre">Reject all</pre>
   <div class="monaco-editor"><span>Keep all</span></div>
   <div id="host"></div>
