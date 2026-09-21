@@ -97,7 +97,7 @@ try {
         mode:g('mode'), thought:g('thought'), files:g('files'), loading:g('loading'), unknown:g('unknown'),
         zw:g('zw'), worked:g('worked'), sum:g('sum'), rm:g('rm'), ran:g('ran'), ed:g('ed'),
         placeholder:document.getElementById('inp').placeholder, inputValue:document.getElementById('inp').value,
-        editable:g('editor'), pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
+        editable:g('editor'), pmph:document.getElementById('pmph').getAttribute('data-placeholder'), pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
         shadow: host && host.shadowRoot ? host.shadowRoot.getElementById('shadowText').textContent : null,
         dyn:g('dynBtn'),
         comp:g('comp'), suf:g('suf'), pass:g('pass'), nomatch:g('nomatch'), readsuf:g('readsuf'),
@@ -126,6 +126,7 @@ try {
   expect("placeholder 翻译", v.placeholder, "计划、搜索、构建任何内容");
   expect("input value 不动", v.inputValue, "Accept");
   expect("contenteditable 跳过", v.editable, "Accept all");
+  expect("可编辑区内 data-placeholder 仍翻译", v.pmph, "发送追问");
   expect("pre 跳过", v.pre, "Reject all");
   expect("monaco 跳过", v.monaco, "Keep all");
   expect("shadow DOM", v.shadow, "审查更改");

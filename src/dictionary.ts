@@ -41,7 +41,7 @@ const DEFAULT_SKIP = [
   ".xterm",
 ];
 
-const DEFAULT_ATTRS = ["title", "aria-label", "placeholder", "alt"];
+const DEFAULT_ATTRS = ["title", "aria-label", "placeholder", "data-placeholder", "alt"];
 
 export function parseDictionary(text: string): Dictionary {
   const raw = JSON.parse(text) as Partial<Dictionary> & Record<string, unknown>;

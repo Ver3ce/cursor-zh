@@ -15,7 +15,7 @@
     ".markdown-root:not(.vscode-model-picker__trigger-markdown)",
     ".markdown-body"
   ],
-  "attributes": ["title", "aria-label", "placeholder", "alt"],
+  "attributes": ["title", "aria-label", "placeholder", "data-placeholder", "alt"],
   "_suffixes 说明": "可剥离的后缀：先翻译前缀，再把后缀替换后拼回。用于 'Reading foo.ts. Open activity'、'3 files +12 -3' 这类组合文案。",
   "suffixes": [
     { "match": "\\. Open activity$", "replace": "。打开活动" },
@@ -1693,7 +1693,9 @@
     "Extra High Fast": "超高 快速",
     "Max": "最高",
     "MCPs": "MCP",
-    "Worktree environment": "工作树环境"
+    "Worktree environment": "工作树环境",
+    "Send follow-up": "发送追问",
+    "Set up Environment": "设置环境"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },

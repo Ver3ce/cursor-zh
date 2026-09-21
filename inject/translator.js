@@ -15,7 +15,7 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var NS = "__cursorZh";
-  var VERSION = "0.1.3"; // 版本变化时，热更新会替换页面内已注入的旧实例
+  var VERSION = "0.1.4"; // 版本变化时，热更新会替换页面内已注入的旧实例
   var MAX_TEXT_LEN = 200;
 
   // 拆出首尾的空白与零宽字符（U+200B-200D / U+2060 / U+FEFF），保证 "Loading fonts...\u2060" 也能命中
@@ -244,13 +244,32 @@
     for (var i = 0; i < attrNames.length; i++) translateAttr(el, attrNames[i], force);
   }
 
+  // 占位提示属性：即使位于被跳过的可编辑区域（如 ProseMirror/tiptap 输入框，占位符挂在内部 <p data-placeholder>），
+  // 也应翻译——它们是 UI 文案而不是用户输入。代码/预格式区域仍然跳过。
+  var PLACEHOLDER_ATTRS = ["placeholder", "data-placeholder", "aria-placeholder"];
+  var PLACEHOLDER_SEL = "[placeholder],[data-placeholder],[aria-placeholder]";
+  function isEditableSkip(el) {
+    return el && el.nodeType === 1 && el.hasAttribute("contenteditable") && !el.closest("pre,code,.monaco-editor,.xterm");
+  }
+  function translatePlaceholderAttrs(el, force) {
+    for (var i = 0; i < PLACEHOLDER_ATTRS.length; i++) {
+      if (attrNames.indexOf(PLACEHOLDER_ATTRS[i]) !== -1) translateAttr(el, PLACEHOLDER_ATTRS[i], force);
+    }
+  }
+  function translatePlaceholdersWithin(root, force) {
+    if (!isEditableSkip(root)) return;
+    translatePlaceholderAttrs(root, force);
+    var list = root.querySelectorAll(PLACEHOLDER_SEL);
+    for (var i = 0; i < list.length; i++) translatePlaceholderAttrs(list[i], force);
+  }
+
   // ---------------- 扫描 ----------------
   function scan(root, force) {
     if (!root) return;
     var t = root.nodeType;
     if (t === 3) { translateText(root, force); return; }
     if (t === 1) {
-      if (matchesSkip(root)) return;
+      if (matchesSkip(root)) { translatePlaceholdersWithin(root, force); return; }
       translateAttrs(root, force);
       if (root.shadowRoot) { observeRoot(root.shadowRoot); scan(root.shadowRoot, force); }
     } else if (t !== 9 && t !== 11) {
@@ -258,7 +277,11 @@
     }
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
       acceptNode: function (n) {
-        if (n.nodeType === 1) return matchesSkip(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        if (n.nodeType === 1) {
+          if (!matchesSkip(n)) return NodeFilter.FILTER_ACCEPT;
+          translatePlaceholdersWithin(n, force);
+          return NodeFilter.FILTER_REJECT;
+        }
         return NodeFilter.FILTER_ACCEPT;
       },
     });
@@ -286,11 +309,22 @@
         for (var j = 0; j < m.addedNodes.length; j++) {
           var node = m.addedNodes[j];
           var el = node.nodeType === 1 ? node : node.parentElement;
-          if (insideSkip(el)) continue;
+          if (insideSkip(el)) {
+            // 可编辑区内新建的占位节点（tiptap 清空后重建 <p data-placeholder>）
+            if (node.nodeType === 1 && isEditableSkip(node.closest("[contenteditable]"))) {
+              translatePlaceholderAttrs(node, false);
+              var ph = node.querySelectorAll(PLACEHOLDER_SEL);
+              for (var k = 0; k < ph.length; k++) translatePlaceholderAttrs(ph[k], false);
+            }
+            continue;
+          }
           scan(node, false);
         }
       } else if (m.type === "attributes") {
         if (!insideSkip(m.target)) translateAttr(m.target, m.attributeName, false);
+        else if (PLACEHOLDER_ATTRS.indexOf(m.attributeName) !== -1 && isEditableSkip(m.target.closest("[contenteditable]"))) {
+          translateAttr(m.target, m.attributeName, false);
+        }
       }
     }
   }
