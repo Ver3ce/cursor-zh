@@ -107,6 +107,33 @@ export function isCursorRunning(): boolean {
   }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 关闭正在运行的 Cursor。先发 WM_CLOSE 让其正常退出（会触发热退出保存状态），
+ * 超时仍未退出再强制结束进程树。返回是否已全部退出。
+ */
+export async function closeCursor(opts: { gracefulMs?: number; force?: boolean } = {}): Promise<boolean> {
+  const gracefulMs = opts.gracefulMs ?? 15_000;
+  const run = (args: string[]) => {
+    try {
+      execFileSync("taskkill", args, { stdio: "ignore", windowsHide: true });
+    } catch {
+      /* 进程可能已经不存在 */
+    }
+  };
+  run(["/IM", "Cursor.exe"]);
+  const deadline = Date.now() + gracefulMs;
+  while (Date.now() < deadline) {
+    if (!isCursorRunning()) return true;
+    await sleep(500);
+  }
+  if (opts.force === false) return false;
+  run(["/F", "/T", "/IM", "Cursor.exe"]);
+  for (let i = 0; i < 10 && isCursorRunning(); i++) await sleep(300);
+  return !isCursorRunning();
+}
+
 export interface LaunchOptions {
   cursorPath: string;
   port: number;

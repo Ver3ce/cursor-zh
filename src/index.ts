@@ -13,7 +13,7 @@ import {
   type Dictionary,
 } from "./dictionary.js";
 import { Injector } from "./injector.js";
-import { detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
+import { closeCursor, detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
 import { restoreLocale, currentLocale } from "./langpack.js";
 import { APP_ROOT, IS_SEA, logDir, resolveFromRoot } from "./paths.js";
 import { desktopDir, isWindows } from "./platform/win.js";
@@ -48,9 +48,13 @@ function log(msg: string): void {
   }
 }
 
-/** exe 双击运行时，出错后暂停，避免窗口一闪而过 */
+/** 由双击 exe 或 cursor-zh.cmd 拉起时（窗口会随进程关闭），出错后暂停，避免窗口一闪而过 */
+function isOwnWindow(): boolean {
+  return (IS_SEA || process.env.CZ_LAUNCHER === "cmd") && !!process.stdin.isTTY;
+}
+
 async function pauseIfDoubleClicked(): Promise<void> {
-  if (!IS_SEA || !process.stdin.isTTY) return;
+  if (!isOwnWindow()) return;
   await new Promise<void>((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question("\n按回车键退出…", () => {
@@ -60,8 +64,33 @@ async function pauseIfDoubleClicked(): Promise<void> {
   });
 }
 
+/** 控制台询问是/否；非交互环境直接返回 fallback */
+async function confirm(question: string, fallback: boolean): Promise<boolean> {
+  if (!process.stdin.isTTY) return fallback;
+  return new Promise<boolean>((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`${question} ${fallback ? "[Y/n]" : "[y/N]"} `, (ans) => {
+      rl.close();
+      const a = ans.trim().toLowerCase();
+      resolve(a === "" ? fallback : a === "y" || a === "yes");
+    });
+  });
+}
+
+/** 退出前把日志写盘；否则 process.exit 会丢掉尚未 flush 的最后几行（尤其是错误行） */
+function flushLog(): Promise<void> {
+  return new Promise((resolve) => {
+    const s = logStream;
+    if (!s) return resolve();
+    logStream = undefined;
+    s.end(() => resolve());
+  });
+}
+
 async function fail(msg: string, code = 1): Promise<never> {
   log(`错误: ${msg}`);
+  log(`日志文件: ${path.join(logDir(), "cursor-zh.log")}`);
+  await flushLog();
   await pauseIfDoubleClicked();
   process.exit(code);
 }
@@ -96,8 +125,9 @@ function printHelp(): void {
 用法（exe 与 node dist/index.js 相同）:
   cursor-zh                 首次运行进入向导；之后等同于 start
   cursor-zh setup           重新运行向导  [--yes 全部默认] [--no-langpack] [--no-locale] [--no-shortcut]
-  cursor-zh start [--force] [-- <传给 Cursor 的参数>]
-                            以调试端口启动 Cursor 并持续注入翻译。控制台内可输入:
+  cursor-zh start [--restart] [--force] [-- <传给 Cursor 的参数>]
+                            以调试端口启动 Cursor 并持续注入翻译。Cursor 已在运行时会询问是否
+                            关闭并重启（--restart 跳过询问）。控制台内可输入:
                               r 重载词典  c 导出未翻译文案  s 会话数  q 退出本工具
   cursor-zh attach          连接到已用 --remote-debugging-port 启动的 Cursor
   cursor-zh collect         导出所有窗口中未翻译的英文文案到 dict/untranslated.json 后退出
@@ -177,6 +207,7 @@ function setupInteractive(cfg: AppConfig, injector: Injector, getDict: () => Dic
       else if (cmd === "s") log(`当前会话数: ${injector.sessionCount}`);
       else if (cmd === "q") {
         log("退出本工具，Cursor 继续运行。");
+        await flushLog();
         process.exit(0);
       } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | q 退出");
     } catch (e) {
@@ -190,7 +221,7 @@ async function runAttached(cfg: AppConfig, wsUrl: string): Promise<void> {
   setupInteractive(cfg, injector, getDict, reload);
   client.onClose(() => {
     log("与 Cursor 的连接已关闭（Cursor 退出或端口不可用），本工具退出。");
-    process.exit(0);
+    void flushLog().then(() => process.exit(0));
   });
   log("翻译已生效。新打开的窗口会自动注入。按 q 回车退出本工具（不影响 Cursor）。");
   await new Promise(() => undefined); // 常驻
@@ -212,15 +243,27 @@ async function cmdStart(cli: Cli, cfg: AppConfig): Promise<void> {
 
   // 已有实例时，新进程只会把参数转交给旧实例然后退出，调试端口不会打开
   if (isCursorRunning() && !cli.flags.has("force")) {
+    let ws: string | undefined;
     try {
-      const ws = await fetchBrowserWsUrl(cfg.port);
+      ws = await fetchBrowserWsUrl(cfg.port);
+    } catch {
+      ws = undefined;
+    }
+    if (ws) {
       log("检测到 Cursor 已在运行且调试端口可用，改为直接附加。");
       return runAttached(cfg, ws);
-    } catch {
-      await fail(
-        "Cursor 已在运行但未开启调试端口。请先完全退出 Cursor（任务管理器中不再有 Cursor.exe），再重新启动本程序。",
-      );
     }
+    log("Cursor 已在运行，但不是由本工具启动的（没有调试端口），无法注入翻译。");
+    // 非交互环境（无 TTY）不自动关闭用户的编辑器，必须显式加 --restart
+    const restart =
+      cli.flags.has("restart") ||
+      (process.stdin.isTTY ? await confirm("是否关闭当前 Cursor 并以中文界面重新启动？（未保存的编辑会由 Cursor 自动恢复）", true) : false);
+    if (!restart) {
+      await fail("已取消。请手动完全退出 Cursor（任务管理器中不再有 Cursor.exe）后再运行本程序，或加 --restart 参数自动重启。");
+    }
+    log("正在关闭 Cursor……");
+    if (!(await closeCursor())) await fail("无法结束 Cursor.exe 进程，请在任务管理器中手动结束后重试。");
+    log("Cursor 已退出。");
   }
 
   const extra = [...cfg.extraCursorArgs, ...cli.passthrough];
@@ -311,11 +354,6 @@ async function main(): Promise<void> {
       // 双击 exe：无配置 → 向导；有配置 → start
       if (!hasConfig()) {
         await cmdSetup(cli);
-        if (isCursorRunning()) {
-          log("请退出 Cursor 后再双击本程序或桌面快捷方式即可开始使用。");
-          await pauseIfDoubleClicked();
-          return;
-        }
         log("即将以中文界面启动 Cursor……");
       }
       return cmdStart(cli, loadConfig());

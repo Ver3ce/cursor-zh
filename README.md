@@ -13,7 +13,7 @@
 ## 快速开始（3 步）
 
 1. 到 [Releases](https://github.com/Ver3ce/cursor-zh/releases/latest) 下载 `cursor-zh.exe`，放到任意文件夹（例如 `D:\Tools\cursor-zh\`）。
-2. **完全退出 Cursor**（任务管理器里没有 `Cursor.exe`），双击 `cursor-zh.exe`。首次运行会进入向导：自动找到 Cursor、安装官方中文语言包、在桌面创建快捷方式「Cursor (中文)」。全程回车即可。
+2. 双击 `cursor-zh.exe`（Cursor 正在运行也没关系，程序会询问是否帮你重启它）。首次运行会进入向导：自动找到 Cursor、安装官方中文语言包、在桌面创建快捷方式「Cursor (中文)」。全程回车即可。
 3. 之后每次用桌面的「Cursor (中文)」启动 Cursor。
 
 Windows SmartScreen 可能提示"未知发布者"，这是因为 exe 未做代码签名（签名证书需付费）。点"更多信息 → 仍要运行"，或用 Release 附带的 `SHA256SUMS.txt` 校验文件。
