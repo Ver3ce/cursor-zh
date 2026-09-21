@@ -1692,7 +1692,8 @@
     "High Fast": "高 快速",
     "Extra High Fast": "超高 快速",
     "Max": "最高",
-    "MCPs": "MCP"
+    "MCPs": "MCP",
+    "Worktree environment": "工作树环境"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },
