@@ -181,6 +181,20 @@ try {
   expect("写入风暴：页面仍可响应", !!s, true);
   expect("写入风暴：保护已触发", (s?.trips ?? 0) >= 1, true);
   expect("写入风暴：往复次数被截断", (s?.resets ?? Infinity) <= 21000, true);
+
+  // 冷却期内再次注入（模拟词典热更新 / 另一个进程 collect）：rescan 会再次撞上对抗者，保护必须能重复触发。
+  // （CI 曾在这里假死：第一次触发后 tripped 标志阻止了第二次触发，而 setDictionary 又把观察者接了回去。）
+  await withTimeout(injector.updateSource(buildInjectSource(translator, dict)), 15000);
+  await new Promise((r) => setTimeout(r, 400));
+  const storm2 = await withTimeout(injector.evaluateAll(`(function(){return {trips:window.__cursorZh.stats().trips, b1:document.getElementById('b1').textContent};})()`), 15000);
+  const s2 = storm2?.find((r) => /fixture\.html/.test(r.url))?.value;
+  expect("写入风暴：冷却期内重注入仍可响应", !!s2, true);
+  // 冷却期内观察者不会被重新接上，所以不会再次风暴（trips 不增）；若实现变化导致接上了，也必须能再次触发而不假死
+  expect("写入风暴：冷却期内未失去保护", (s2?.trips ?? 0) >= 1, true);
+  // 等冷却结束，确认翻译恢复
+  await new Promise((r) => setTimeout(r, 3500));
+  const after = await withTimeout(injector.evaluateAll(`(function(){return document.getElementById('b1').textContent;})()`), 15000);
+  expect("写入风暴：冷却后翻译恢复", after?.find((r) => /fixture\.html/.test(r.url))?.value, "发送");
   client.close();
 
   // 可选：用打包好的 exe 跑 collect，验证 SEA 资产与外部词典加载

@@ -307,21 +307,25 @@
   // 若与页面框架（React/ProseMirror）互相触发，MutationObserver 回调会在同一轮微任务里无限往复，
   // 不会让出主线程。这里统计"未让出主线程期间"的 DOM 写入次数，超限即断开所有观察者，稍后再恢复。
   var BURST_LIMIT = 20000;
-  var burst = 0, burstTimer = null, tripped = false;
+  var TRIP_COOLDOWN = 3000;
+  var burst = 0, burstTimer = null, tripped = false, tripTimer = null;
   function noteWrite() {
     burst++;
     if (burstTimer === null) burstTimer = setTimeout(function () { burst = 0; burstTimer = null; }, 0);
-    if (burst > BURST_LIMIT && !tripped) trip();
+    if (burst > BURST_LIMIT) { burst = 0; trip(); }
   }
+  // 可重入：冷却期内若再次被触发（例如词典重载引起 rescan 又撞上同一个对抗者），再次断开并重新计时。
+  // 冷却期内 observeRoot/reobserveAll 一律不接观察者，避免"被别处重新接上但不再触发保护"的窟窿。
   function trip() {
     tripped = true;
     stats.trips++;
     disconnectObservers();
-    try { console.warn("[cursor-zh] 检测到 DOM 写入风暴（" + burst + " 次未让出主线程），已暂停翻译 3 秒以保护页面"); } catch (e) { /* ignore */ }
-    setTimeout(function () {
-      tripped = false; burst = 0; burstTimer = null;
-      if (!disposed && ready) reobserveAll();
-    }, 3000);
+    try { console.warn("[cursor-zh] 检测到 DOM 写入风暴（>" + BURST_LIMIT + " 次未让出主线程），已暂停翻译 " + (TRIP_COOLDOWN / 1000) + " 秒以保护页面"); } catch (e) { /* ignore */ }
+    if (tripTimer !== null) clearTimeout(tripTimer);
+    tripTimer = setTimeout(function () {
+      tripTimer = null; tripped = false; burst = 0; burstTimer = null;
+      if (!disposed && ready) { reobserveAll(); rescan(); }
+    }, TRIP_COOLDOWN);
   }
 
   // ---------------- 扫描 ----------------
@@ -384,7 +388,7 @@
     }
   }
   function observeRoot(root) {
-    if (!root || observedRoots.has(root)) return;
+    if (tripped || !root || observedRoots.has(root)) return;
     observedRoots.add(root);
     var mo = new MutationObserver(onMutations);
     var opts = { childList: true, subtree: true, characterData: true };
@@ -398,9 +402,9 @@
     observedRoots = new WeakSet();
   }
   function reobserveAll() {
-    // 属性列表变化 / 风暴保护恢复时重建 observer
+    // 属性列表变化 / 风暴保护恢复时重建 observer；冷却期内只断不接
     disconnectObservers();
-    observeRoot(document);
+    if (!tripped) observeRoot(document);
   }
 
   // 捕获之后创建的 open shadow root
@@ -502,6 +506,7 @@
 
   function dispose() {
     disposed = true;
+    if (tripTimer !== null) { clearTimeout(tripTimer); tripTimer = null; }
     disconnectObservers();
     phClear();
     unhookAttachShadow();
