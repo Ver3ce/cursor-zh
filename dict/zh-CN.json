@@ -1681,7 +1681,18 @@
     "Get Grok Bot": "获取 Grok Bot",
     "About Cursor": "关于 Cursor",
     "Canvas": "画布",
-    "Browse": "浏览"
+    "Browse": "浏览",
+
+    "_第四次 collect 补充": "",
+    "Unknown task subject": "未知任务主题",
+    "Development environment setup": "开发环境设置",
+    "Updated": "已更新",
+    "Starting": "正在启动",
+    "1M High": "1M 高",
+    "High Fast": "高 快速",
+    "Extra High Fast": "超高 快速",
+    "Max": "最高",
+    "MCPs": "MCP"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },
@@ -1811,6 +1822,8 @@
     { "match": "^Searching (.+)$", "replace": "正在搜索 $1" },
     { "match": "^(.+) enabled$", "replace": "$1 已启用" },
     { "match": "^(.+) disabled$", "replace": "$1 已禁用" },
-    { "match": "^Panel (.+)$", "replace": "面板 $1" }
+    { "match": "^Panel (.+)$", "replace": "面板 $1" },
+    { "match": "^Keybinding: (.+)$", "replace": "快捷键：$1" },
+    { "match": "^Close (.+)$", "replace": "关闭 $1" }
   ]
 }
