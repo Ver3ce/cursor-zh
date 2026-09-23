@@ -84,6 +84,74 @@ export function pickCursorExe(): string {
   }
 }
 
+const WIN32_HELPER = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class CzWin {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+'@ -ErrorAction SilentlyContinue
+`;
+
+/** 把 Cursor 主窗口还原并切到前台。窗口还没创建时返回 missing。 */
+export function focusCursorWindow(): "ok" | "missing" | "failed" {
+  try {
+    const out = runPowerShell(
+      WIN32_HELPER +
+        `
+$procs = @(Get-Process -Name Cursor -ErrorAction SilentlyContinue)
+foreach ($proc in $procs) { $proc.Refresh() }
+$p = $procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Sort-Object StartTime -Descending | Select-Object -First 1
+if (-not $p) { 'missing'; return }
+$h = $p.MainWindowHandle
+if ([CzWin]::IsIconic($h)) { [CzWin]::ShowWindow($h, 9) | Out-Null } else { [CzWin]::ShowWindow($h, 5) | Out-Null }
+# 后台进程直接 SetForegroundWindow 会被系统拒绝。先发一次 Alt，再激活。
+[CzWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+[CzWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+$shell = New-Object -ComObject WScript.Shell
+$activated = $shell.AppActivate($p.Id)
+[CzWin]::BringWindowToTop($h) | Out-Null
+$set = [CzWin]::SetForegroundWindow($h)
+if ($activated -or $set) { 'ok' } else { 'failed' }
+`,
+      { timeoutMs: 8000 },
+    );
+    if (out === "ok" || out === "missing" || out === "failed") return out;
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** 最小化本工具所在的控制台。从别人的终端里启动时没有控制台，返回 false。 */
+export function minimizeConsole(): boolean {
+  try {
+    const out = runPowerShell(
+      WIN32_HELPER +
+        `
+$h = [CzWin]::GetConsoleWindow()
+if ($h -eq [IntPtr]::Zero) { 'none'; return }
+[CzWin]::ShowWindow($h, 6) | Out-Null
+'ok'
+`,
+      { timeoutMs: 8000 },
+    );
+    return out === "ok";
+  } catch {
+    return false;
+  }
+}
+
 /** 从正在运行的 Cursor 进程获取路径 */
 export function runningCursorPaths(): string[] {
   try {

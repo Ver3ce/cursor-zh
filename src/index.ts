@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 import { CdpClient, fetchBrowserWsUrl, waitForDebugPort } from "./cdp.js";
@@ -16,7 +17,7 @@ import { Injector } from "./injector.js";
 import { closeCursor, detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
 import { restoreLocale, currentLocale } from "./langpack.js";
 import { APP_ROOT, IS_SEA, logDir, resolveFromRoot } from "./paths.js";
-import { desktopDir, isWindows } from "./platform/win.js";
+import { desktopDir, focusCursorWindow, isWindows, minimizeConsole } from "./platform/win.js";
 import { runSetup, SHORTCUT_NAME } from "./setup.js";
 import { updateDictionary } from "./update.js";
 
@@ -126,10 +127,13 @@ function printHelp(): void {
   cursor-zh                 首次运行进入向导；之后等同于 start
   cursor-zh setup           重新运行向导  [--yes 全部默认] [--no-langpack] [--no-locale] [--no-shortcut]
   cursor-zh start [--restart] [--force] [-- <传给 Cursor 的参数>]
-                            以调试端口启动 Cursor 并持续注入翻译。Cursor 已在运行时会询问是否
-                            关闭并重启（--restart 跳过询问）。控制台内可输入:
-                              r 重载词典  c 导出未翻译文案  s 会话数  q 退出本工具
-  cursor-zh attach          连接到已用 --remote-debugging-port 启动的 Cursor
+                            以调试端口启动 Cursor 并持续注入翻译。本工具留在后台（自己的窗口会最小化），
+                            Cursor 切到前台。再次双击快捷方式不会新开一份：Cursor 在跑就把它放到前台，
+                            没在跑就重新启动。Cursor 已在运行但没有调试端口时会询问是否关闭并重启
+                            （--restart 跳过询问）。控制台内可输入:
+                              r 重载词典  c 导出未翻译  s 会话数  n 前台重启 Cursor  q 退出本工具
+  cursor-zh restart         请后台中的 cursor-zh 关闭并在前台重新启动 Cursor（没有后台实例时自己做）
+  cursor-zh attach          连接到已用 --remote-debugging-port 启动的 Cursor，并同样留在后台
   cursor-zh collect         导出所有窗口中未翻译的英文文案到 dict/untranslated.json 后退出
   cursor-zh update-dict     从 GitHub 拉取最新词典（仅此命令会联网）
   cursor-zh detect          打印探测到的 Cursor.exe 路径
@@ -196,35 +200,191 @@ async function connectAndInject(cfg: AppConfig, wsUrl: string): Promise<{ client
   return { client, injector, getDict: () => dict, reload };
 }
 
-function setupInteractive(cfg: AppConfig, injector: Injector, getDict: () => Dictionary, reload: () => Promise<void>): void {
-  if (!process.stdin.isTTY) return;
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", async (line) => {
-    const cmd = line.trim().toLowerCase();
-    try {
-      if (cmd === "r") await reload();
-      else if (cmd === "c") log(`已导出未翻译文案: ${await exportUntranslated(cfg, injector, getDict())}`);
-      else if (cmd === "s") log(`当前会话数: ${injector.sessionCount}`);
-      else if (cmd === "q") {
-        log("退出本工具，Cursor 继续运行。");
-        await flushLog();
-        process.exit(0);
-      } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | q 退出");
-    } catch (e) {
-      log(`执行失败: ${(e as Error).message}`);
-    }
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 后台实例的控制端口：只监听本机，供第二次启动的快捷方式发命令。 */
+function residentPort(cfg: AppConfig): number {
+  return cfg.port + 1;
+}
+
+/** 向已在后台运行的 cursor-zh 发一条命令。没人在听时返回 undefined。 */
+function askResident(port: number, command: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    let buf = "";
+    let settled = false;
+    const done = (v: string | undefined) => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch { /* ignore */ }
+      resolve(v);
+    };
+    socket.setTimeout(1500);
+    socket.on("connect", () => socket.write(command + "\n"));
+    socket.on("data", (d) => {
+      buf += d.toString();
+      if (buf.includes("\n")) done(buf.trim());
+    });
+    socket.on("timeout", () => done(undefined));
+    socket.on("error", () => done(undefined));
   });
 }
 
-async function runAttached(cfg: AppConfig, wsUrl: string): Promise<void> {
-  const { client, injector, getDict, reload } = await connectAndInject(cfg, wsUrl);
-  setupInteractive(cfg, injector, getDict, reload);
-  client.onClose(() => {
-    log("与 Cursor 的连接已关闭（Cursor 退出或端口不可用），本工具退出。");
-    void flushLog().then(() => process.exit(0));
+function listenResident(port: number, onCommand: (cmd: string) => Promise<string>): Promise<net.Server | undefined> {
+  const server = net.createServer((socket) => {
+    let buf = "";
+    socket.on("data", (d) => {
+      buf += d.toString();
+      const line = buf.split(/\r?\n/, 1)[0]?.trim();
+      if (!line) return;
+      void onCommand(line).then(
+        (msg) => socket.end(msg + "\n"),
+        (e) => socket.end(`error ${(e as Error).message}\n`),
+      );
+    });
   });
-  log("翻译已生效。新打开的窗口会自动注入。按 q 回车退出本工具（不影响 Cursor）。");
-  await new Promise(() => undefined); // 常驻
+  return new Promise((resolve) => {
+    server.once("error", (e) => {
+      log(`后台控制端口 ${port} 不可用（${(e as Error).message}），本次不会响应第二次快捷方式。`);
+      resolve(undefined);
+    });
+    server.listen(port, "127.0.0.1", () => resolve(server));
+  });
+}
+
+interface LiveSession {
+  client: CdpClient;
+  injector: Injector;
+  getDict: () => Dictionary;
+  reload: () => Promise<void>;
+}
+
+/**
+ * 常驻：Cursor 退出后本进程不退出。调试端口重新出现时自动接上。
+ * n / 控制端口 restart：关掉 Cursor，再把它启动到前台。
+ */
+async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], firstWs: string): Promise<void> {
+  let current: LiveSession | null = null;
+  let replacing = false;
+  let restarting: Promise<void> | null = null;
+
+  const attach = async (wsUrl: string) => {
+    const conn = await connectAndInject(cfg, wsUrl);
+    current = conn;
+    conn.client.onClose(() => {
+      if (replacing || current?.client !== conn.client) return;
+      current = null;
+      log("Cursor 已断开，cursor-zh 保持后台运行。它若带调试端口重新打开，会自动接上。");
+      log("输入 n 在前台重新启动 Cursor，q 退出本工具。");
+    });
+    log("翻译已生效。新打开的窗口会自动注入。");
+  };
+
+  const bringToFront = async () => {
+    if (isOwnWindow()) minimizeConsole();
+    for (let i = 0; i < 15; i++) {
+      if (focusCursorWindow() === "ok") return true;
+      await sleep(400);
+    }
+    return false;
+  };
+
+  const launchAndAttach = async () => {
+    launchCursor({ cursorPath, port: cfg.port, extraArgs: extra });
+    const ws = await waitForDebugPort(cfg.port, 30_000);
+    await attach(ws);
+    const focused = await bringToFront();
+    log(focused ? "Cursor 已在前台打开，本工具继续在后台运行。" : "Cursor 已启动。没能把它切到前台，可手动点一下任务栏图标。");
+  };
+
+  const restart = async () => {
+    if (restarting) return restarting;
+    restarting = (async () => {
+      replacing = true;
+      try {
+        current?.client.close();
+        current = null;
+        log("正在关闭 Cursor……");
+        if (!(await closeCursor())) throw new Error("无法结束 Cursor.exe，请在任务管理器中手动结束后再试。");
+        log("正在前台重新启动 Cursor……");
+        await launchAndAttach();
+      } finally {
+        replacing = false;
+        restarting = null;
+      }
+    })();
+    return restarting;
+  };
+
+  const focusOrLaunch = async (): Promise<string> => {
+    try {
+      const ws = await fetchBrowserWsUrl(cfg.port, 800);
+      if (!current) await attach(ws);
+      const ok = await bringToFront();
+      return ok ? "ok Cursor 已切到前台" : "ok 已连接，但未能把 Cursor 切到前台";
+    } catch {
+      if (isCursorRunning()) {
+        await restart();
+        return "ok Cursor 没有调试端口，已在前台重新启动";
+      }
+      await launchAndAttach();
+      return "ok Cursor 已在前台启动";
+    }
+  };
+
+  await listenResident(residentPort(cfg), async (cmd) => {
+    if (cmd === "ping") return "ok";
+    if (cmd === "focus") return focusOrLaunch();
+    if (cmd === "restart") {
+      await restart();
+      return "ok Cursor 已在前台重新启动";
+    }
+    return "error 未知命令";
+  });
+
+  if (!process.stdin.isTTY) {
+    /* 非交互环境只靠控制端口 */
+  } else {
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", async (line) => {
+      const cmd = line.trim().toLowerCase();
+      try {
+        if (cmd === "r") {
+          if (!current) log("当前没有连接，无法重载。");
+          else await current.reload();
+        } else if (cmd === "c") {
+          if (!current) log("当前没有连接，无法导出。");
+          else log(`已导出未翻译文案: ${await exportUntranslated(cfg, current.injector, current.getDict())}`);
+        } else if (cmd === "s") log(`当前会话数: ${current?.injector.sessionCount ?? 0}`);
+        else if (cmd === "n") await restart();
+        else if (cmd === "q") {
+          log("退出本工具，Cursor 继续运行。");
+          await flushLog();
+          process.exit(0);
+        } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | n 前台重启 Cursor | q 退出");
+      } catch (e) {
+        log(`执行失败: ${(e as Error).message}`);
+      }
+    });
+  }
+
+  await attach(firstWs);
+  const focused = await bringToFront();
+  log(focused ? "Cursor 已在前台。本工具在后台运行，关掉这个窗口才会停止翻译。" : "翻译已挂上。没能把 Cursor 切到前台。");
+  log("Cursor 退出后本工具不退出。输入 n 可在前台重新启动它。");
+
+  while (true) {
+    await sleep(1500);
+    if (current || replacing) continue;
+    try {
+      const ws = await fetchBrowserWsUrl(cfg.port, 800);
+      if (current || replacing) continue;
+      log("检测到 Cursor 已重新打开，正在附加。");
+      await attach(ws);
+    } catch {
+      /* Cursor 还没回来 */
+    }
+  }
 }
 
 async function resolveCursorPath(cfg: AppConfig): Promise<string> {
@@ -239,6 +399,13 @@ async function resolveCursorPath(cfg: AppConfig): Promise<string> {
 }
 
 async function cmdStart(cli: Cli, cfg: AppConfig): Promise<void> {
+  const handed = await askResident(residentPort(cfg), cli.flags.has("restart") ? "restart" : "focus");
+  if (handed) {
+    log(handed.replace(/^ok\s?/, "") || "已交给后台中的 cursor-zh。");
+    if (!handed.startsWith("ok")) await fail(handed);
+    return;
+  }
+
   const cursorPath = await resolveCursorPath(cfg);
 
   // 已有实例时，新进程只会把参数转交给旧实例然后退出，调试端口不会打开
@@ -249,11 +416,11 @@ async function cmdStart(cli: Cli, cfg: AppConfig): Promise<void> {
     } catch {
       ws = undefined;
     }
-    if (ws) {
+    if (ws && !cli.flags.has("restart")) {
       log("检测到 Cursor 已在运行且调试端口可用，改为直接附加。");
-      return runAttached(cfg, ws);
+      return runResident(cfg, cursorPath, [...cfg.extraCursorArgs, ...cli.passthrough], ws);
     }
-    log("Cursor 已在运行，但不是由本工具启动的（没有调试端口），无法注入翻译。");
+    if (!ws) log("Cursor 已在运行，但不是由本工具启动的（没有调试端口），无法注入翻译。");
     // 非交互环境（无 TTY）不自动关闭用户的编辑器，必须显式加 --restart
     const restart =
       cli.flags.has("restart") ||
@@ -270,17 +437,33 @@ async function cmdStart(cli: Cli, cfg: AppConfig): Promise<void> {
   log(`启动 Cursor: ${cursorPath} --remote-debugging-port=${cfg.port}${extra.length ? " " + extra.join(" ") : ""}`);
   launchCursor({ cursorPath, port: cfg.port, extraArgs: extra });
   const wsUrl = await waitForDebugPort(cfg.port, 30_000);
-  await runAttached(cfg, wsUrl);
+  await runResident(cfg, cursorPath, extra, wsUrl);
 }
 
 async function cmdAttach(cfg: AppConfig): Promise<void> {
+  const handed = await askResident(residentPort(cfg), "focus");
+  if (handed) {
+    log(handed.replace(/^ok\s?/, "") || "已交给后台中的 cursor-zh。");
+    if (!handed.startsWith("ok")) await fail(handed);
+    return;
+  }
   let wsUrl = "";
   try {
     wsUrl = await fetchBrowserWsUrl(cfg.port);
   } catch (e) {
     await fail(`无法连接 127.0.0.1:${cfg.port}：${(e as Error).message}。Cursor 是否以 --remote-debugging-port=${cfg.port} 启动？`);
   }
-  await runAttached(cfg, wsUrl);
+  await runResident(cfg, await resolveCursorPath(cfg), cfg.extraCursorArgs, wsUrl);
+}
+
+async function cmdRestart(cfg: AppConfig): Promise<void> {
+  const handed = await askResident(residentPort(cfg), "restart");
+  if (handed) {
+    log(handed.replace(/^ok\s?/, "") || "已交给后台中的 cursor-zh。");
+    if (!handed.startsWith("ok")) await fail(handed);
+    return;
+  }
+  return cmdStart({ command: "start", flags: new Set(["restart"]), passthrough: [] }, cfg);
 }
 
 async function cmdCollect(cfg: AppConfig): Promise<void> {
@@ -365,6 +548,8 @@ async function main(): Promise<void> {
       return;
     case "attach":
       return cmdAttach(loadConfig());
+    case "restart":
+      return cmdRestart(loadConfig());
     case "collect":
       return cmdCollect(loadConfig());
     case "update-dict":
