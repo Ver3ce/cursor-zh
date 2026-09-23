@@ -36,6 +36,10 @@
   <input id="inp" placeholder="Plan, search, build anything" value="Accept">
   <div id="editor" contenteditable="true">Accept all</div>
   <div id="pm" class="tiptap ProseMirror" contenteditable="true"><p id="pmph" class="is-editor-empty" data-placeholder="Send follow-up"><br></p></div>
+  <div data-component="tooltip-title-row" data-inline="true" style="display:flex;align-items:center;justify-content:space-between;min-width:0;overflow-wrap:anywhere;width:220px">
+    <span id="kbLabel">下一个标签页</span>
+    <span style="flex-shrink:0;white-space:nowrap">Alt ] or Ctrl Alt ] or Ctrl Alt →</span>
+  </div>
   <script>
     // 模拟 ProseMirror：编辑器内任何属性被外部改写，都会被它按自己的状态改回去。
     // 若翻译器直接 setAttribute，会形成两个 MutationObserver 互相触发的微任务死循环（页面假死）。

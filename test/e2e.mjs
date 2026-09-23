@@ -101,6 +101,8 @@ try {
         pmAttr:document.getElementById('pmph').getAttribute('data-placeholder'),
         pmShown:getComputedStyle(document.getElementById('pmph'),'::before').content,
         pmResets:window.__pmResets||0,
+        kbWrap:getComputedStyle(document.getElementById('kbLabel')).whiteSpace,
+        kbH:document.getElementById('kbLabel').getBoundingClientRect().height,
         pre:g('pre'), monaco:document.querySelector('.monaco-editor span').textContent,
         shadow: host && host.shadowRoot ? host.shadowRoot.getElementById('shadowText').textContent : null,
         dyn:g('dynBtn'),
@@ -133,6 +135,8 @@ try {
   expect("ProseMirror 占位符：属性不被改写", v.pmAttr, "Send follow-up");
   expect("ProseMirror 占位符：::before 显示译文", v.pmShown, '"发送追问"');
   expect("ProseMirror 占位符：未触发编辑器回写", v.pmResets, 0);
+  expect("键位行标题不换行", v.kbWrap, "nowrap");
+  expect("键位行标题保持单行高度", v.kbH < 32, true);
   expect("pre 跳过", v.pre, "Reject all");
   expect("monaco 跳过", v.monaco, "Keep all");
   expect("shadow DOM", v.shadow, "审查更改");
