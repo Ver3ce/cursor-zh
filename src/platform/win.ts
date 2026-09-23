@@ -113,15 +113,13 @@ $procs = @(Get-Process -Name Cursor -ErrorAction SilentlyContinue)
 foreach ($proc in $procs) { $proc.Refresh() }
 $wins = @($procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
 if ($wins.Count -eq 0) { 'missing'; return }
+# 只还原已经缩到任务栏的窗口。对正常窗口再 ShowWindow 会把它从前景里挤走。
 foreach ($w in $wins) {
   $wh = $w.MainWindowHandle
-  if ([CzWin]::IsIconic($wh)) { [CzWin]::ShowWindow($wh, 9) | Out-Null } else { [CzWin]::ShowWindow($wh, 5) | Out-Null }
+  if ([CzWin]::IsIconic($wh)) { [CzWin]::ShowWindow($wh, 9) | Out-Null }
 }
 $p = $wins | Sort-Object { $_.MainWindowTitle.Length } -Descending | Select-Object -First 1
 $h = $p.MainWindowHandle
-# 后台进程直接 SetForegroundWindow 会被系统拒绝。先发一次 Alt，再激活。
-[CzWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-[CzWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
 $shell = New-Object -ComObject WScript.Shell
 $activated = $shell.AppActivate($p.Id)
 [CzWin]::BringWindowToTop($h) | Out-Null

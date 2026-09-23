@@ -17,7 +17,7 @@ import { Injector } from "./injector.js";
 import { closeCursor, detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
 import { restoreLocale, currentLocale } from "./langpack.js";
 import { APP_ROOT, IS_SEA, logDir, resolveFromRoot } from "./paths.js";
-import { desktopDir, focusCursorWindow, isWindows, minimizeConsole } from "./platform/win.js";
+import { desktopDir, focusCursorWindow, isWindows } from "./platform/win.js";
 import { runSetup, SHORTCUT_NAME } from "./setup.js";
 import { updateDictionary } from "./update.js";
 
@@ -280,17 +280,16 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
     log("翻译已生效。新打开的窗口会自动注入。");
   };
 
-  const bringToFront = async () => {
+  // Cursor 启动后期会按上次的窗口状态再缩回去。这里持续几秒，只要它缩进任务栏就立刻还原。
+  // 绝不再最小化本工具的控制台：那一步会把刚拿到前景的 Cursor 一起带走。
+  const bringToFront = async (holdMs = 6000) => {
+    const deadline = Date.now() + holdMs;
     let ok = false;
-    for (let i = 0; i < 15; i++) {
-      if (focusCursorWindow() === "ok") {
-        ok = true;
-        break;
-      }
-      await sleep(400);
+    while (Date.now() < deadline) {
+      const r = focusCursorWindow();
+      if (r === "ok") ok = true;
+      await sleep(500);
     }
-    // 先把 Cursor 放到前台，再收起本工具自己的控制台，避免 Cursor 跟着被最小化。
-    if (isOwnWindow()) minimizeConsole();
     return ok;
   };
 
@@ -325,7 +324,7 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
     try {
       const ws = await fetchBrowserWsUrl(cfg.port, 800);
       if (!current) await attach(ws);
-      const ok = await bringToFront();
+      const ok = await bringToFront(2000);
       return ok ? "ok Cursor 已切到前台" : "ok 已连接，但未能把 Cursor 切到前台";
     } catch {
       if (isCursorRunning()) {
