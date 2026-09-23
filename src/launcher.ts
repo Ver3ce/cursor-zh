@@ -145,8 +145,7 @@ export interface LaunchOptions {
  * detached + unref：本工具退出后 Cursor 继续运行。
  */
 export function launchCursor(opts: LaunchOptions): void {
-  // 快捷方式把本工具最小化启动时，直接 spawn 会让 Cursor 继承最小化状态。
-  // Start-Process -WindowStyle Normal 强制普通前台窗口。调试端口仍只绑 127.0.0.1。
+  // 用普通窗口启动，避免 Cursor 继承到最小化状态。调试端口仍只绑 127.0.0.1。
   startProcessNormal(
     opts.cursorPath,
     [`--remote-debugging-port=${opts.port}`, ...opts.extraArgs],

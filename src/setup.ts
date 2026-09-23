@@ -140,7 +140,7 @@ export async function runSetup(opts: SetupOptions): Promise<{ cursorPath: string
         workingDir: APP_ROOT,
         iconPath: cursorPath,
         description: "以中文界面启动 Cursor（cursor-zh 运行时翻译）",
-        windowStyle: 7,
+        windowStyle: 1,
       });
       log(`已创建: ${lnk}`);
     }

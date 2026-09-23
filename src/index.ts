@@ -17,7 +17,7 @@ import { Injector } from "./injector.js";
 import { closeCursor, detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
 import { restoreLocale, currentLocale } from "./langpack.js";
 import { APP_ROOT, IS_SEA, logDir, resolveFromRoot } from "./paths.js";
-import { desktopDir, focusCursorWindow, isWindows } from "./platform/win.js";
+import { desktopDir, isWindows } from "./platform/win.js";
 import { runSetup, SHORTCUT_NAME } from "./setup.js";
 import { updateDictionary } from "./update.js";
 
@@ -127,11 +127,11 @@ function printHelp(): void {
   cursor-zh                 首次运行进入向导；之后等同于 start
   cursor-zh setup           重新运行向导  [--yes 全部默认] [--no-langpack] [--no-locale] [--no-shortcut]
   cursor-zh start [--restart] [--force] [-- <传给 Cursor 的参数>]
-                            以调试端口启动 Cursor 并持续注入翻译。本工具留在后台（自己的窗口会最小化），
-                            Cursor 切到前台。再次双击快捷方式不会新开一份：Cursor 在跑就把它放到前台，
+                            以调试端口启动 Cursor 并持续注入翻译。本工具的窗口保持打开，不自动最小化。
+                            再次双击快捷方式不会新开一份：Cursor 已带调试端口就直接用已有实例，
                             没在跑就重新启动。Cursor 已在运行但没有调试端口时会询问是否关闭并重启
                             （--restart 跳过询问）。控制台内可输入:
-                              r 重载词典  c 导出未翻译  s 会话数  n 前台重启 Cursor  q 退出本工具
+                              r 重载词典  c 导出未翻译  s 会话数  n 重新启动 Cursor  q 退出本工具
   cursor-zh restart         请后台中的 cursor-zh 关闭并在前台重新启动 Cursor（没有后台实例时自己做）
   cursor-zh attach          连接到已用 --remote-debugging-port 启动的 Cursor，并同样留在后台
   cursor-zh collect         导出所有窗口中未翻译的英文文案到 dict/untranslated.json 后退出
@@ -274,31 +274,17 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
     conn.client.onClose(() => {
       if (replacing || current?.client !== conn.client) return;
       current = null;
-      log("Cursor 已断开，cursor-zh 保持后台运行。它若带调试端口重新打开，会自动接上。");
-      log("输入 n 在前台重新启动 Cursor，q 退出本工具。");
+      log("Cursor 已断开，cursor-zh 继续运行。它若带调试端口重新打开，会自动接上。");
+      log("输入 n 重新启动 Cursor，q 退出本工具。");
     });
     log("翻译已生效。新打开的窗口会自动注入。");
-  };
-
-  // Cursor 启动后期会按上次的窗口状态再缩回去。这里持续几秒，只要它缩进任务栏就立刻还原。
-  // 绝不再最小化本工具的控制台：那一步会把刚拿到前景的 Cursor 一起带走。
-  const bringToFront = async (holdMs = 6000) => {
-    const deadline = Date.now() + holdMs;
-    let ok = false;
-    while (Date.now() < deadline) {
-      const r = focusCursorWindow();
-      if (r === "ok") ok = true;
-      await sleep(500);
-    }
-    return ok;
   };
 
   const launchAndAttach = async () => {
     launchCursor({ cursorPath, port: cfg.port, extraArgs: extra });
     const ws = await waitForDebugPort(cfg.port, 30_000);
     await attach(ws);
-    const focused = await bringToFront();
-    log(focused ? "Cursor 已在前台打开，本工具继续在后台运行。" : "Cursor 已启动。没能把它切到前台，可手动点一下任务栏图标。");
+    log("Cursor 已启动。本窗口保持打开，关掉它才会停止翻译。");
   };
 
   const restart = async () => {
@@ -310,7 +296,7 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
         current = null;
         log("正在关闭 Cursor……");
         if (!(await closeCursor())) throw new Error("无法结束 Cursor.exe，请在任务管理器中手动结束后再试。");
-        log("正在前台重新启动 Cursor……");
+        log("正在重新启动 Cursor……");
         await launchAndAttach();
       } finally {
         replacing = false;
@@ -324,15 +310,14 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
     try {
       const ws = await fetchBrowserWsUrl(cfg.port, 800);
       if (!current) await attach(ws);
-      const ok = await bringToFront(2000);
-      return ok ? "ok Cursor 已切到前台" : "ok 已连接，但未能把 Cursor 切到前台";
+      return "ok 已在运行，未再启动一份";
     } catch {
       if (isCursorRunning()) {
         await restart();
-        return "ok Cursor 没有调试端口，已在前台重新启动";
+        return "ok Cursor 没有调试端口，已重新启动";
       }
       await launchAndAttach();
-      return "ok Cursor 已在前台启动";
+      return "ok Cursor 已启动";
     }
   };
 
@@ -341,7 +326,7 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
     if (cmd === "focus") return focusOrLaunch();
     if (cmd === "restart") {
       await restart();
-      return "ok Cursor 已在前台重新启动";
+      return "ok Cursor 已重新启动";
     }
     return "error 未知命令";
   });
@@ -365,7 +350,7 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
           log("退出本工具，Cursor 继续运行。");
           await flushLog();
           process.exit(0);
-        } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | n 前台重启 Cursor | q 退出");
+        } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | n 重新启动 Cursor | q 退出");
       } catch (e) {
         log(`执行失败: ${(e as Error).message}`);
       }
@@ -373,9 +358,8 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
   }
 
   await attach(firstWs);
-  const focused = await bringToFront();
-  log(focused ? "Cursor 已在前台。本工具在后台运行，关掉这个窗口才会停止翻译。" : "翻译已挂上。没能把 Cursor 切到前台。");
-  log("Cursor 退出后本工具不退出。输入 n 可在前台重新启动它。");
+  log("本窗口保持打开，不会自动最小化。关掉它才会停止翻译。");
+  log("Cursor 退出后本工具不退出。输入 n 可重新启动 Cursor。");
 
   while (true) {
     await sleep(1500);
