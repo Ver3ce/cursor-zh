@@ -1,6 +1,6 @@
 {
   "name": "cursor-zh",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Cursor 界面运行时汉化：通过 Chrome DevTools Protocol 把 Cursor 专有界面（Agent 面板、Cursor Settings 等）替换为中文，不修改任何 Cursor 安装文件。",
   "license": "MIT",
