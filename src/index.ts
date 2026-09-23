@@ -281,12 +281,17 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
   };
 
   const bringToFront = async () => {
-    if (isOwnWindow()) minimizeConsole();
+    let ok = false;
     for (let i = 0; i < 15; i++) {
-      if (focusCursorWindow() === "ok") return true;
+      if (focusCursorWindow() === "ok") {
+        ok = true;
+        break;
+      }
       await sleep(400);
     }
-    return false;
+    // 先把 Cursor 放到前台，再收起本工具自己的控制台，避免 Cursor 跟着被最小化。
+    if (isOwnWindow()) minimizeConsole();
+    return ok;
   };
 
   const launchAndAttach = async () => {

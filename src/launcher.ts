@@ -1,7 +1,7 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { runningCursorPaths } from "./platform/win.js";
+import { runningCursorPaths, startProcessNormal } from "./platform/win.js";
 
 function exists(p: string): boolean {
   try {
@@ -144,15 +144,12 @@ export interface LaunchOptions {
  * 以调试端口启动 Cursor。
  * detached + unref：本工具退出后 Cursor 继续运行。
  */
-export function launchCursor(opts: LaunchOptions): number | undefined {
-  // Chromium 在非 headless 模式下调试端口固定绑定 127.0.0.1，外部网络无法访问
-  const args = [`--remote-debugging-port=${opts.port}`, ...opts.extraArgs];
-  const child = spawn(opts.cursorPath, args, {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: false,
-    cwd: path.dirname(opts.cursorPath),
-  });
-  child.unref();
-  return child.pid;
+export function launchCursor(opts: LaunchOptions): void {
+  // 快捷方式把本工具最小化启动时，直接 spawn 会让 Cursor 继承最小化状态。
+  // Start-Process -WindowStyle Normal 强制普通前台窗口。调试端口仍只绑 127.0.0.1。
+  startProcessNormal(
+    opts.cursorPath,
+    [`--remote-debugging-port=${opts.port}`, ...opts.extraArgs],
+    path.dirname(opts.cursorPath),
+  );
 }

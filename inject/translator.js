@@ -15,7 +15,7 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var NS = "__cursorZh";
-  var VERSION = "0.1.7"; // 版本变化时，热更新会替换页面内已注入的旧实例
+  var VERSION = "0.1.8"; // 版本变化时，热更新会替换页面内已注入的旧实例
   var MAX_TEXT_LEN = 200;
 
   // 拆出首尾的空白与零宽字符（U+200B-200D / U+2060 / U+FEFF），保证 "Loading fonts...\u2060" 也能命中
@@ -281,17 +281,20 @@
     phStyle = null;
   }
 
-  // 快捷键提示行（data-component=tooltip-title-row）是 flex + overflow-wrap:anywhere，
-  // 快捷键本身 nowrap 且不收缩。中文没有词间空格，最小宽度会塌成一个字，于是命令名被竖着拆开。
-  // 让标题保持一行，放不下时整组快捷键换到下一行。
+  // 快捷键帮助（keybinding-help-step）把命令名放在 minmax(0,1fr) 的格子里，
+  // 标题是 flex:1 1 auto + min-width:0 + overflow-wrap:anywhere。中文每个字都能断开，
+  // 标题就被挤成一字一行。悬停提示行（tooltip-title-row）是同一类问题。
+  var LAYOUT_CSS = '[data-component="keybinding-help-step"] p{flex:0 0 auto!important;min-width:max-content!important;white-space:nowrap!important;overflow-wrap:normal!important}'
+    + '[data-component="keybinding-help-step"] div:has(> p){flex-wrap:wrap!important;align-items:center!important}'
+    + '[data-component="tooltip-title-row"][data-inline]{flex-wrap:wrap!important}'
+    + '[data-component="tooltip-title-row"][data-inline]>:first-child{flex:0 0 auto!important;min-width:max-content!important;overflow-wrap:normal!important;white-space:nowrap!important}';
   var layoutStyle = null;
   function ensureLayoutCss() {
     if (layoutStyle && layoutStyle.isConnected) return;
     try {
       layoutStyle = document.createElement("style");
       layoutStyle.setAttribute("data-cursor-zh", "layout");
-      layoutStyle.textContent = '[data-component="tooltip-title-row"][data-inline]{flex-wrap:wrap!important}'
-        + '[data-component="tooltip-title-row"][data-inline]>:first-child{flex:0 0 auto!important;min-width:max-content!important;overflow-wrap:normal!important;white-space:nowrap!important}';
+      layoutStyle.textContent = LAYOUT_CSS;
       (document.head || document.documentElement).appendChild(layoutStyle);
     } catch (e) { /* ignore */ }
   }

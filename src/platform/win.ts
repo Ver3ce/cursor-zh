@@ -111,10 +111,14 @@ export function focusCursorWindow(): "ok" | "missing" | "failed" {
         `
 $procs = @(Get-Process -Name Cursor -ErrorAction SilentlyContinue)
 foreach ($proc in $procs) { $proc.Refresh() }
-$p = $procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Sort-Object StartTime -Descending | Select-Object -First 1
-if (-not $p) { 'missing'; return }
+$wins = @($procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
+if ($wins.Count -eq 0) { 'missing'; return }
+foreach ($w in $wins) {
+  $wh = $w.MainWindowHandle
+  if ([CzWin]::IsIconic($wh)) { [CzWin]::ShowWindow($wh, 9) | Out-Null } else { [CzWin]::ShowWindow($wh, 5) | Out-Null }
+}
+$p = $wins | Sort-Object { $_.MainWindowTitle.Length } -Descending | Select-Object -First 1
 $h = $p.MainWindowHandle
-if ([CzWin]::IsIconic($h)) { [CzWin]::ShowWindow($h, 9) | Out-Null } else { [CzWin]::ShowWindow($h, 5) | Out-Null }
 # 后台进程直接 SetForegroundWindow 会被系统拒绝。先发一次 Alt，再激活。
 [CzWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
 [CzWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
@@ -131,6 +135,15 @@ if ($activated -or $set) { 'ok' } else { 'failed' }
   } catch {
     return "failed";
   }
+}
+
+/** 以普通窗口启动程序，不继承调用方的最小化状态。 */
+export function startProcessNormal(exe: string, args: string[], cwd: string): void {
+  const list = args.map((a) => psQuote(a)).join(", ");
+  runPowerShell(
+    `Start-Process -FilePath ${psQuote(exe)} -WorkingDirectory ${psQuote(cwd)} -WindowStyle Normal${list ? ` -ArgumentList ${list}` : ""}`,
+    { timeoutMs: 15_000 },
+  );
 }
 
 /** 最小化本工具所在的控制台。从别人的终端里启动时没有控制台，返回 false。 */

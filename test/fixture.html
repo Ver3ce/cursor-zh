@@ -36,9 +36,13 @@
   <input id="inp" placeholder="Plan, search, build anything" value="Accept">
   <div id="editor" contenteditable="true">Accept all</div>
   <div id="pm" class="tiptap ProseMirror" contenteditable="true"><p id="pmph" class="is-editor-empty" data-placeholder="Send follow-up"><br></p></div>
-  <div data-component="tooltip-title-row" data-inline="true" style="display:flex;align-items:center;justify-content:space-between;min-width:0;overflow-wrap:anywhere;width:220px">
-    <span id="kbLabel">下一个标签页</span>
-    <span style="flex-shrink:0;white-space:nowrap">Alt ] or Ctrl Alt ] or Ctrl Alt →</span>
+  <div data-component="keybinding-help-step" style="width:280px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between">
+        <p id="kbLabel" style="flex:1 1 auto;min-width:0;margin:0;white-space:normal;overflow-wrap:anywhere">下一个标签页</p>
+        <div style="flex-shrink:0;white-space:nowrap">Alt ] or Ctrl Alt ] or Ctrl Alt →</div>
+      </div>
+    </div>
   </div>
   <script>
     // 模拟 ProseMirror：编辑器内任何属性被外部改写，都会被它按自己的状态改回去。
