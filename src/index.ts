@@ -131,7 +131,7 @@ function printHelp(): void {
                             再次双击快捷方式不会新开一份：Cursor 已带调试端口就直接用已有实例，
                             没在跑就重新启动。Cursor 已在运行但没有调试端口时会询问是否关闭并重启
                             （--restart 跳过询问）。控制台内可输入:
-                              r 重载词典  c 导出未翻译  s 会话数  n 重新启动 Cursor  q 退出本工具
+                              r 重载词典  u 从 GitHub 更新词典  c 导出未翻译  s 会话数  n 重新启动 Cursor  q 退出本工具
   cursor-zh restart         请后台中的 cursor-zh 关闭并在前台重新启动 Cursor（没有后台实例时自己做）
   cursor-zh attach          连接到已用 --remote-debugging-port 启动的 Cursor，并同样留在后台
   cursor-zh collect         导出所有窗口中未翻译的英文文案到 dict/untranslated.json 后退出
@@ -344,13 +344,19 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
         } else if (cmd === "c") {
           if (!current) log("当前没有连接，无法导出。");
           else log(`已导出未翻译文案: ${await exportUntranslated(cfg, current.injector, current.getDict())}`);
-        } else if (cmd === "s") log(`当前会话数: ${current?.injector.sessionCount ?? 0}`);
-        else if (cmd === "n") await restart();
+        }         else if (cmd === "s") log(`当前会话数: ${current?.injector.sessionCount ?? 0}`);
+        else if (cmd === "u") {
+          log(`正在下载: ${cfg.dictUrl}`);
+          const updated = await updateDictionary(cfg.dictUrl, cfg.dictionary);
+          if (!updated.changed) log(`本地词典已是最新（${updated.stats.exact} 精确 / ${updated.stats.patterns} 正则）`);
+          else log(`词典已更新为 ${updated.stats.exact} 精确 / ${updated.stats.patterns} 正则${updated.backup ? `，旧版本备份在 ${updated.backup}` : ""}。界面会自动换上。`);
+          for (const w of updated.warnings.slice(0, 5)) log(`提示: ${w}`);
+        } else if (cmd === "n") await restart();
         else if (cmd === "q") {
           log("退出本工具，Cursor 继续运行。");
           await flushLog();
           process.exit(0);
-        } else if (cmd) log("可用命令: r 重载词典 | c 导出未翻译 | s 会话数 | n 重新启动 Cursor | q 退出");
+        } else if (cmd) log("可用命令: r 重载词典 | u 更新词典 | c 导出未翻译 | s 会话数 | n 重新启动 Cursor | q 退出");
       } catch (e) {
         log(`执行失败: ${(e as Error).message}`);
       }
@@ -359,7 +365,7 @@ async function runResident(cfg: AppConfig, cursorPath: string, extra: string[], 
 
   await attach(firstWs);
   log("本窗口保持打开，不会自动最小化。关掉它才会停止翻译。");
-  log("Cursor 退出后本工具不退出。输入 n 可重新启动 Cursor。");
+  log("输入 u 从 GitHub 更新词典，n 重新启动 Cursor，q 退出本工具。");
 
   while (true) {
     await sleep(1500);

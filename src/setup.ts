@@ -143,6 +143,17 @@ export async function runSetup(opts: SetupOptions): Promise<{ cursorPath: string
         windowStyle: 1,
       });
       log(`已创建: ${lnk}`);
+      const updateLnk = path.join(APP_ROOT, "更新词典.lnk");
+      createShortcut({
+        lnkPath: updateLnk,
+        target,
+        args: "update-dict",
+        workingDir: APP_ROOT,
+        iconPath: cursorPath,
+        description: "从 GitHub 拉取最新 cursor-zh 词典",
+        windowStyle: 1,
+      });
+      log(`已创建: ${updateLnk}`);
     }
 
     log("======== 向导完成 ========");
