@@ -2055,7 +2055,20 @@
     "Clear yesterday": "清除昨天",
     "Select Environment": "选择环境",
     "Try Cloud": "试用云端",
-    "Multiple worktrees detected in this repo": "此仓库中检测到多个工作树"
+    "Multiple worktrees detected in this repo": "此仓库中检测到多个工作树",
+
+    "_第八次 collect 补充": "",
+    "Environment ready": "环境已就绪",
+    "Dismiss error": "关闭错误",
+    "Too many computers.": "计算机数量过多。",
+    "Copy ID": "复制 ID",
+    "Agent encountered an error": "智能体遇到错误",
+    "Update: restart Cursor to install": "更新：重启 Cursor 以安装",
+    "Agent branches": "智能体分支",
+    "Unarchive": "取消归档",
+    "From Web": "来自网页",
+    "Move agent while it’s working?": "智能体仍在工作时移动它？",
+    "Stop and Move": "停止并移动"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },
@@ -2212,6 +2225,8 @@
     { "match": "^workspace ⋅ (.+)$", "replace": "工作区 ⋅ $1" },
     { "match": "^Delete (.+)$", "replace": "删除 $1" },
     { "match": "^(\\d+) more$", "replace": "还有 $1 项" },
-    { "match": "^Close (.+)$", "replace": "关闭 $1" }
+    { "match": "^Close (.+)$", "replace": "关闭 $1" },
+    { "match": "^Prompt, tile (\\d+)$", "replace": "提示词，磁贴 $1" },
+    { "match": "^(\\d+)ms$", "replace": "$1 毫秒" }
   ]
 }
