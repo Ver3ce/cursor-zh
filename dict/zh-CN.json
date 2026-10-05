@@ -2073,7 +2073,13 @@
     "_第九次 collect 补充": "",
     "Reconnecting...": "正在重新连接...",
     "messages below": "以下消息",
-    "Fetching page": "正在获取页面"
+    "Fetching page": "正在获取页面",
+
+    "_第十次 collect 补充": "",
+    "Unable to load this step.": "无法加载此步骤。",
+    "Plan ending soon": "计划即将结束",
+    "Manage Billing": "管理账单",
+    "Dismiss pending cancellation banner": "关闭待取消提示"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },
