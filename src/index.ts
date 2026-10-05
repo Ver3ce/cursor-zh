@@ -16,7 +16,7 @@ import {
 import { Injector } from "./injector.js";
 import { closeCursor, detectCursorPaths, isCursorRunning, launchCursor } from "./launcher.js";
 import { restoreLocale, currentLocale } from "./langpack.js";
-import { APP_ROOT, IS_SEA, logDir, resolveFromRoot } from "./paths.js";
+import { APP_ROOT, IS_SEA, logDir, readAsset, resolveFromRoot } from "./paths.js";
 import { desktopDir, isWindows } from "./platform/win.js";
 import { runSetup, SHORTCUT_NAME } from "./setup.js";
 import { updateDictionary } from "./update.js";
@@ -517,11 +517,26 @@ async function cmdUninstall(cli: Cli): Promise<void> {
   log(`cursor-zh 从未修改 Cursor 安装文件。删除本程序所在目录 ${APP_ROOT} 即可彻底卸载。`);
 }
 
+/** exe 升级时用内置词典覆盖旁边的 dict/zh-CN.json。同一版本再次启动不覆盖，以便 update-dict 和手改仍然有效。 */
+function syncBundledDictionary(): void {
+  if (!IS_SEA) return;
+  const dictPath = path.join(APP_ROOT, "dict", "zh-CN.json");
+  const stampPath = `${dictPath}.bundled-version`;
+  const stamped = fs.existsSync(stampPath) ? fs.readFileSync(stampPath, "utf8").trim() : "";
+  if (stamped === VERSION && fs.existsSync(dictPath)) return;
+  fs.mkdirSync(path.dirname(dictPath), { recursive: true });
+  if (fs.existsSync(dictPath)) fs.copyFileSync(dictPath, `${dictPath}.bak`);
+  fs.writeFileSync(dictPath, readAsset("zh-CN.json"), "utf8");
+  fs.writeFileSync(stampPath, VERSION, "utf8");
+  log(stamped ? `已用 v${VERSION} 自带词典覆盖旧词典（原文件备份为 dict\\zh-CN.json.bak）` : `已释放 v${VERSION} 自带词典`);
+}
+
 async function main(): Promise<void> {
   if (!isWindows()) {
     console.error("cursor-zh 目前仅支持 Windows。");
     process.exit(1);
   }
+  syncBundledDictionary();
   const cli = parseArgv(process.argv.slice(2));
   if (cli.flags.has("version") || cli.flags.has("v")) return void console.log(VERSION);
   if (cli.flags.has("help") || cli.flags.has("h")) return printHelp();
