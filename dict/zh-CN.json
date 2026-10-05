@@ -2079,7 +2079,22 @@
     "Unable to load this step.": "无法加载此步骤。",
     "Plan ending soon": "计划即将结束",
     "Manage Billing": "管理账单",
-    "Dismiss pending cancellation banner": "关闭待取消提示"
+    "Dismiss pending cancellation banner": "关闭待取消提示",
+
+    "_第十一次 collect 补充": "",
+    "Summarize this conversation": "总结此对话",
+    "Summarizing chat context": "正在总结对话上下文",
+    "You cannot summarize while the agent is still working.": "智能体仍在工作时无法总结。",
+    "Preview of summarize": "「总结」预览",
+    "Slash commands": "斜杠命令",
+    "Add a plugin to this agent": "向此智能体添加插件",
+    "Review code instead of editing it": "审查代码而不直接修改",
+    "Commit the current changes": "提交当前更改",
+    "Revert files to this message?": "将文件还原到这条消息？",
+    "Don't Ask Again": "不再询问",
+    "Keep Files": "保留文件",
+    "Revert Files": "还原文件",
+    "Always revert": "始终还原"
   },
   "patterns": [
     { "match": "^Thought for (\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)$", "replace": "思考了 $1 秒" },
@@ -2239,6 +2254,7 @@
     { "match": "^(\\d+) more$", "replace": "还有 $1 项" },
     { "match": "^Close (.+)$", "replace": "关闭 $1" },
     { "match": "^Prompt, tile (\\d+)$", "replace": "提示词，磁贴 $1" },
-    { "match": "^(\\d+)ms$", "replace": "$1 毫秒" }
+    { "match": "^(\\d+)ms$", "replace": "$1 毫秒" },
+    { "match": "^Grepping (.+)$", "replace": "正在 Grep 搜索 $1" }
   ]
 }
